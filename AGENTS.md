@@ -12,6 +12,7 @@ This repository is a production-style React.js showcase. Every change should pre
 - Keep docs synchronized with implementation changes.
 - Run the full verification path after code changes: lint, typecheck, tests, build, and e2e.
 - Avoid speculative abstractions unless a component is already proving reuse.
+- Domain logic should live in finance models, reducers, selectors, and hooks rather than in view components.
 
 ## Project map
 

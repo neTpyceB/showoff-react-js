@@ -1,7 +1,7 @@
 # Engineering Rules
 
-- Favor controlled/uncontrolled APIs for reusable interactive components.
-- Keep CSS token-based and colocated at the application level until scale requires extraction.
-- Default to semantic HTML before adding ARIA.
-- Use provider patterns only for truly cross-cutting concerns such as toasts.
-- Keep the test pyramid balanced: cheap unit checks first, browser assertions for real workflows.
+- Keep reducer logic pure and deterministic.
+- Put all cross-component derived finance calculations in selectors, not component bodies.
+- Validate both user input and hydrated storage payloads with schemas.
+- Prefer browser-native controls for dates, selects, and tables before layering extra abstractions.
+- Keep charts lightweight unless the product scope clearly justifies a third-party dependency.

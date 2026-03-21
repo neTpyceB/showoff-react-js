@@ -1,12 +1,21 @@
 # Showoff React.js
 
-Production-grade React component playground built with Vite, TypeScript, Docker, and full test coverage. The app demonstrates accessible buttons, modal, tabs, dropdown actions, toast notifications, and a validated form inside a polished UI kit demo.
+Production-grade personal finance tracker built with React, TypeScript, Vite, Docker, and a full browser-tested verification pipeline. The app covers transaction entry, category modeling, reducer-driven state, derived analytics, filters, local persistence, and custom chart components.
+
+## Product scope
+
+- Add and delete transactions with schema validation
+- Filter by search, transaction kind, category, and period
+- Derived balance, income, expense, and savings-rate metrics
+- Expense breakdown and six-month trend charts
+- Local persistence through a custom reducer hook
 
 ## Stack
 
 - React 19
 - TypeScript 5
 - Vite 8
+- React Hook Form + Zod
 - Vitest + Testing Library
 - Playwright + axe-core
 - Docker + GitHub Actions
@@ -42,7 +51,7 @@ Open [http://localhost:4173](http://localhost:4173).
 make verify
 ```
 
-That runs linting, type checks, unit tests, smoke tests, production build, and browser e2e tests.
+That runs linting, type checks, unit tests, smoke tests, production build, and Playwright browser e2e.
 
 ## Documentation
 
