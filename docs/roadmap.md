@@ -2,13 +2,15 @@
 
 ## Current scope
 
-- Accessible UI kit demo surface
-- Core interaction primitives
-- Full local and CI verification
+- Reducer-driven finance tracker
+- Validated transaction workflow
+- Search and category filters
+- Local persistence and analytics charts
 
 ## Next candidates
 
-- Theme switching with token layering
-- Async form submission state backed by a mock API contract
-- Visual regression snapshots in Playwright
-- Package extraction path if the component set grows into a reusable library
+- Edit flow with optimistic validation
+- Budget targets and variance alerts
+- CSV import/export
+- Storage version migrations for future schema changes
+- Multi-account and recurring-transaction support
