@@ -3,13 +3,16 @@
 ## Baseline review
 
 - Public access is limited to `/login`.
-- Team-space routes require an authenticated session.
-- Space access is checked server-side in the mock API before board data is returned.
-- Viewer roles cannot create or move tasks.
-- Invalid persisted session or database data throws explicit errors rather than silently recovering.
+- Channel routes require an authenticated session cookie.
+- Attachment content is served through a protected route rather than a public static directory.
+- Server APIs reject unauthenticated access before returning workspace, channel, thread, or upload data.
+- Unsupported upload types fail explicitly.
+- Invalid persisted session or local IndexedDB state does not silently impersonate a user session.
 
 ## Exposure notes
 
 - `localhost:5173` and `localhost:4173` are intentional local-only development surfaces.
-- No additional public URLs or unprotected routes are exposed by the app.
-- When moved to a real backend, route protection must be enforced on the server as well as in the client.
+- `/ws` is same-origin and only upgrades when the session cookie maps to a valid user.
+- `/api/uploads/:attachmentId/content` is private.
+- No extra public routes beyond `/login` are intentionally exposed.
+- When moved to a real backend, this app should add CSRF protection, durable session storage, rate limiting, and attachment scanning.

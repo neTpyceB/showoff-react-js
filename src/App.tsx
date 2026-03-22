@@ -1,8 +1,9 @@
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 import { AppShell } from './components/AppShell.tsx'
-import { BoardPage } from './components/BoardPage.tsx'
+import { ChannelPage } from './components/ChannelPage.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
-import { useSessionQuery, useSpacesQuery } from './kanban/hooks.ts'
+import { useBootstrapQuery, useSessionQuery } from './chat/hooks.ts'
+import { ChatRealtimeProvider } from './chat/socket.tsx'
 
 const LoadingScreen = ({ label }: { label: string }) => (
   <main className="login-shell">
@@ -14,7 +15,7 @@ const LoadingScreen = ({ label }: { label: string }) => (
 
 const RootRedirect = () => {
   const sessionQuery = useSessionQuery()
-  const spacesQuery = useSpacesQuery(sessionQuery.data?.id)
+  const bootstrapQuery = useBootstrapQuery(Boolean(sessionQuery.data))
 
   if (sessionQuery.isPending) {
     return <LoadingScreen label="Checking session" />
@@ -24,22 +25,20 @@ const RootRedirect = () => {
     return <Navigate to="/login" replace />
   }
 
-  if (spacesQuery.isPending) {
-    return <LoadingScreen label="Loading team spaces" />
+  if (bootstrapQuery.isPending) {
+    return <LoadingScreen label="Loading channels" />
   }
 
-  const firstSpace = spacesQuery.data?.[0]
-
-  if (!firstSpace) {
-    return <LoadingScreen label="No accessible spaces found" />
+  if (!bootstrapQuery.data) {
+    return <LoadingScreen label="Workspace unavailable" />
   }
 
-  return <Navigate to={`/spaces/${firstSpace.id}`} replace />
+  return <Navigate to={`/channels/${bootstrapQuery.data.defaultChannelId}`} replace />
 }
 
 const ProtectedRoute = () => {
   const sessionQuery = useSessionQuery()
-  const { spaceId = '' } = useParams()
+  const { channelId = '' } = useParams()
 
   if (sessionQuery.isPending) {
     return <LoadingScreen label="Checking session" />
@@ -50,7 +49,7 @@ const ProtectedRoute = () => {
   }
 
   return (
-    <AppShell activeSpaceId={spaceId}>
+    <AppShell activeChannelId={channelId}>
       <Outlet />
     </AppShell>
   )
@@ -71,14 +70,18 @@ const LoginRoute = () => {
 }
 
 function App() {
+  const sessionQuery = useSessionQuery()
+
   return (
-    <Routes>
-      <Route path="/login" element={<LoginRoute />} />
-      <Route path="/" element={<RootRedirect />} />
-      <Route element={<ProtectedRoute />}>
-        <Route path="/spaces/:spaceId" element={<BoardPage />} />
-      </Route>
-    </Routes>
+    <ChatRealtimeProvider userId={sessionQuery.data?.id ?? null}>
+      <Routes>
+        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/" element={<RootRedirect />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/channels/:channelId" element={<ChannelPage />} />
+        </Route>
+      </Routes>
+    </ChatRealtimeProvider>
   )
 }
 
