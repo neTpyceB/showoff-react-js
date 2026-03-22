@@ -69,6 +69,40 @@ const scrollChannelToBottom = async (page) => {
   })
 }
 
+const waitForEnabled = async (locator) => {
+  await locator.waitFor({ state: 'visible' })
+  await locator.evaluate((element) => {
+    if (!(element instanceof HTMLButtonElement)) {
+      throw new Error('Expected a button element.')
+    }
+  })
+  await locator.page().waitForFunction(
+    (button) => button instanceof HTMLButtonElement && button.disabled === false,
+    await locator.elementHandle(),
+  )
+}
+
+const waitForTextAfterReload = async (page, text, options = {}) => {
+  const { attempts = 5, afterReload } = options
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const locator = page.getByText(text)
+
+    if (await locator.isVisible().catch(() => false)) {
+      return locator
+    }
+
+    await page.reload()
+    await page.locator('.connection-pill[data-state="online"]').waitFor({ state: 'visible' })
+
+    if (afterReload) {
+      await afterReload()
+    }
+  }
+
+  return page.getByText(text)
+}
+
 const runAccessibilityScenario = async (browser) => {
   const { context, page } = await createPage(browser)
 
@@ -117,16 +151,30 @@ const runCoreChatScenario = async (browser) => {
     const benChannelTextarea = benPage.getByPlaceholder('Write a message').first()
     await benChannelTextarea.focus()
     await benChannelTextarea.pressSequentially(channelMessage, { delay: 35 })
+    const sendChannelButton = benPage.getByRole('button', { name: 'Send message' })
+    await waitForEnabled(sendChannelButton)
+    const sendChannelRequest = benPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/channels/general/messages') &&
+        response.request().method() === 'POST' &&
+        response.status() === 202,
+    )
     await benPage.bringToFront()
-    await benPage
-      .getByRole('button', { name: 'Send message' })
-      .evaluate((button) => {
-        button.click()
-      })
-    await alicePage.goto(alicePage.url())
-    await scrollChannelToBottom(alicePage)
+    await sendChannelButton.evaluate((button) => {
+      button.click()
+    })
+    await sendChannelRequest
     await assertVisible(
-      alicePage.getByText(channelMessage),
+      messageCard(benPage, channelMessage),
+      'Sender should render the new message before the cross-session check.',
+    )
+    const aliceChannelMessage = await waitForTextAfterReload(alicePage, channelMessage, {
+      afterReload: async () => {
+        await scrollChannelToBottom(alicePage)
+      },
+    })
+    await assertVisible(
+      aliceChannelMessage,
       'New channel message should sync in realtime.',
     )
     await assertVisible(
@@ -151,15 +199,27 @@ const runCoreChatScenario = async (browser) => {
     await benPage.goto(`${baseURL}/channels/support`)
     const benSupportTextarea = benPage.getByPlaceholder('Write a message').first()
     await benSupportTextarea.fill(supportMessage)
+    const sendSupportButton = benPage.getByRole('button', { name: 'Send message' })
+    await waitForEnabled(sendSupportButton)
+    const sendSupportRequest = benPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/channels/support/messages') &&
+        response.request().method() === 'POST' &&
+        response.status() === 202,
+    )
     await benPage.bringToFront()
-    await benPage
-      .getByRole('button', { name: 'Send message' })
-      .evaluate((button) => {
-        button.click()
-      })
-    await alicePage.goto(`${baseURL}/channels/support`)
+    await sendSupportButton.evaluate((button) => {
+      button.click()
+    })
+    await sendSupportRequest
     await assertVisible(
-      alicePage.getByText(supportMessage),
+      messageCard(benPage, supportMessage),
+      'Support sender should render the new message before the cross-session check.',
+    )
+    await alicePage.goto(`${baseURL}/channels/support`)
+    const aliceSupportMessage = await waitForTextAfterReload(alicePage, supportMessage)
+    await assertVisible(
+      aliceSupportMessage,
       'Support messages should load correctly after cross-session sends.',
     )
 
