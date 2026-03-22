@@ -120,7 +120,11 @@ const runCoreChatScenario = async (browser) => {
       'Typing indicator should appear in the other session.',
     )
     await benPage.bringToFront()
-    await benPage.getByRole('button', { name: 'Send message' }).click({ force: true })
+    await benPage
+      .getByRole('button', { name: 'Send message' })
+      .evaluate((button) => {
+        button.click()
+      })
     await alicePage.goto(alicePage.url())
     await scrollChannelToBottom(alicePage)
     await assertVisible(
@@ -150,7 +154,11 @@ const runCoreChatScenario = async (browser) => {
     const benSupportTextarea = benPage.getByPlaceholder('Write a message').first()
     await benSupportTextarea.fill(supportMessage)
     await benPage.bringToFront()
-    await benPage.getByRole('button', { name: 'Send message' }).click({ force: true })
+    await benPage
+      .getByRole('button', { name: 'Send message' })
+      .evaluate((button) => {
+        button.click()
+      })
     await alicePage.goto(`${baseURL}/channels/support`)
     await assertVisible(
       alicePage.getByText(supportMessage),
