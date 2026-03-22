@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 import AxeBuilder from '@axe-core/playwright'
@@ -6,13 +7,14 @@ import { chromium } from 'playwright'
 
 const port = Number(process.env.E2E_PORT ?? '4174')
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`
+const uploadFixture = resolve(process.cwd(), 'e2e/fixtures/sample.txt')
 
 const waitForServer = async (url, timeoutMs = 30_000) => {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const response = await fetch(url)
+      const response = await fetch(`${url}/api/healthz`)
 
       if (response.ok) {
         return
@@ -28,134 +30,128 @@ const waitForServer = async (url, timeoutMs = 30_000) => {
   throw new Error(`Timed out waiting for ${url}.`)
 }
 
-const newPage = async () => {
-  const browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({
-    viewport: {
-      width: 1280,
-      height: 720,
-    },
-  })
-  const page = await context.newPage()
-
-  return {
-    browser,
-    page,
-  }
-}
-
-const closePage = async (browser) => {
-  await browser.close()
-}
-
 const assertVisible = async (locator, message) => {
   await locator.waitFor({ state: 'visible' })
   assert.equal(await locator.isVisible(), true, message)
 }
 
-const runAccessibilityScenario = async () => {
-  const { browser, page } = await newPage()
+const createBrowser = async () =>
+  chromium.launch({
+    headless: true,
+  })
+
+const createPage = async (browser) => {
+  const context = await browser.newContext({
+    viewport: {
+      width: 1440,
+      height: 960,
+    },
+  })
+
+  return {
+    context,
+    page: await context.newPage(),
+  }
+}
+
+const loginAs = async (page, firstName) => {
+  await page.goto(`${baseURL}/login`)
+  await page.getByRole('button', { name: `Sign in as ${firstName}` }).click()
+  await page.waitForURL(/\/channels\/general$/)
+  await page.locator('.connection-pill[data-state="online"]').waitFor({ state: 'visible' })
+}
+
+const messageCard = (page, text) => page.locator('article').filter({ hasText: text }).first()
+
+const runAccessibilityScenario = async (browser) => {
+  const { context, page } = await createPage(browser)
 
   try {
-    await page.goto(`${baseURL}/login`)
+    await page.goto(`${baseURL}/channels/general`)
+    await page.waitForURL(/\/login$/)
     await assertVisible(
-      page.getByRole('heading', { name: 'Kanban Task Manager' }),
+      page.getByRole('heading', { name: 'Orbit Team Chat' }),
       'Login heading should be visible.',
     )
 
-    const accessibilityScan = await new AxeBuilder({ page }).analyze()
-    assert.deepEqual(accessibilityScan.violations, [], 'Accessibility violations found.')
+    const scan = await new AxeBuilder({ page }).analyze()
+    assert.deepEqual(scan.violations, [], 'Accessibility violations found on the login route.')
   } finally {
-    await closePage(browser)
+    await context.close()
   }
 }
 
-const loginAs = async (page, userName) => {
-  await page.getByRole('button', { name: `Sign in as ${userName}` }).click()
-}
-
-const runBoardScenario = async () => {
-  const { browser, page } = await newPage()
+const runCoreChatScenario = async (browser) => {
+  const { context: aliceContext, page: alicePage } = await createPage(browser)
+  const { context: benContext, page: benPage } = await createPage(browser)
 
   try {
-    await page.goto(`${baseURL}/spaces/platform`)
-    await page.waitForURL(/\/login$/)
-    assert.match(page.url(), /\/login$/, 'Anonymous user should be redirected to /login.')
-
-    await loginAs(page, 'Alice')
-    await page.waitForURL(/\/spaces\/platform$/)
-    assert.match(
-      page.url(),
-      /\/spaces\/platform$/,
-      'Alice should land on the platform team space.',
-    )
-    await assertVisible(
-      page.getByRole('heading', { name: 'Platform Rebuild' }),
-      'Board heading should be visible after login.',
-    )
-
-    await page.getByLabel('Task title').fill('Harden route redirect checks')
-    await page
-      .getByLabel('Task description')
-      .fill('Verify private space redirects and explicit permission failures.')
-    await page.getByRole('button', { name: 'Create task' }).click()
-    await assertVisible(page.getByText('Task created'), 'Task creation toast should appear.')
-    await page.getByText('Task created').waitFor({ state: 'hidden' })
-
-    const moveRightButton = page
-      .getByLabel('Harden route redirect checks assigned to Alice Johnson')
-      .getByRole('button', { name: 'Move right' })
-    await assertVisible(moveRightButton, 'Move right action should be visible for the task.')
-    await moveRightButton.click({ force: true })
-    await assertVisible(page.getByText('Task moved'), 'Task movement toast should appear.')
-    await page.getByText('Task moved').waitFor({ state: 'hidden' })
+    await loginAs(alicePage, 'Alice')
+    await loginAs(benPage, 'Ben')
 
     await assertVisible(
-      page.getByLabel('In Progress dropzone').getByText('Harden route redirect checks'),
-      'Moved task should appear in In Progress.',
+      alicePage.locator('.member-row').filter({ hasText: 'Ben Carter' }).getByText('Online'),
+      'Presence should show Ben as online.',
     )
 
-    await page.reload()
+    await benPage.bringToFront()
+    const benComposer = benPage.getByLabel('Upload image or doc')
+    await benComposer.setInputFiles(uploadFixture)
+    await assertVisible(benPage.getByText('sample.txt'), 'Uploaded document should be attached.')
+
+    await alicePage.goto(`${baseURL}/channels/support`)
+    await delay(700)
+    await alicePage.goto(`${baseURL}/channels/general`)
+    await alicePage.waitForURL(/\/channels\/general$/)
+
+    await alicePage.bringToFront()
+    const threadButton = messageCard(
+      alicePage,
+      'General coordination update 24. Track live status, owners, and unblockers here.',
+    ).getByRole('button', {
+      name: /0 replies/i,
+    })
+    await threadButton.evaluate((button) => {
+      button.click()
+    })
+    await alicePage.waitForURL(/thread=/)
     await assertVisible(
-      page.getByRole('heading', { name: 'Platform Rebuild' }),
-      'Board heading should still be visible after reload.',
+      alicePage.getByText('Thread', { exact: true }),
+      'Thread panel should open for the selected message.',
+    )
+
+    await benPage.bringToFront()
+    await benPage.goto(`${baseURL}/channels/support`)
+    await alicePage.goto(`${baseURL}/channels/support`)
+    await assertVisible(
+      alicePage.getByRole('heading', { name: '#support' }),
+      'Support channel should load correctly.',
+    )
+
+    await alicePage.goto(`${baseURL}/channels/general`)
+    const newestBeforePagination = alicePage.getByText('General coordination update 24. Track live status, owners, and unblockers here.')
+    await assertVisible(newestBeforePagination, 'Newest seeded message should be visible.')
+    await alicePage.getByRole('button', { name: 'Load older' }).click()
+    await assertVisible(
+      alicePage.getByText('General coordination update 6. Track live status, owners, and unblockers here.'),
+      'Older paginated messages should load.',
     )
     await assertVisible(
-      page.getByLabel('In Progress dropzone').getByText('Harden route redirect checks'),
-      'Moved task should persist after reload.',
+      newestBeforePagination,
+      'Loading older messages should preserve the current viewport context.',
     )
   } finally {
-    await closePage(browser)
-  }
-}
-
-const runViewerScenario = async () => {
-  const { browser, page } = await newPage()
-
-  try {
-    await page.goto(`${baseURL}/login`)
-    await loginAs(page, 'Casey')
-    await page.waitForURL(/\/spaces\/platform$/)
-    assert.match(
-      page.url(),
-      /\/spaces\/platform$/,
-      'Viewer login should land on the platform team space.',
-    )
-    await assertVisible(
-      page.getByText('Viewer access: board changes are blocked by permissions.'),
-      'Viewer access copy should be visible.',
-    )
-    assert.equal(
-      await page.getByRole('button', { name: 'Create task' }).isDisabled(),
-      true,
-      'Viewer should not be allowed to create tasks.',
-    )
-  } finally {
-    await closePage(browser)
+    await aliceContext.close()
+    await benContext.close()
   }
 }
 
 await waitForServer(baseURL)
-await runBoardScenario()
-await runViewerScenario()
-await runAccessibilityScenario()
+const browser = await createBrowser()
+
+try {
+  await runAccessibilityScenario(browser)
+  await runCoreChatScenario(browser)
+} finally {
+  await browser.close()
+}

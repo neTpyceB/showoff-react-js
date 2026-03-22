@@ -15,5 +15,7 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 FROM base AS preview
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+COPY server ./server
+COPY src/chat ./src/chat
 EXPOSE 4173
 CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]

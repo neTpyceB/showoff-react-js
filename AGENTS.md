@@ -26,7 +26,8 @@ This repository is a production-style React.js showcase. Every change should pre
 
 ## Project map
 
-- `src/`: application code and component primitives.
+- `src/`: application code, routed chat UI, and shared chat domain logic.
+- `server/`: local HTTP and WebSocket backend plus seeded in-memory store.
 - `e2e/`: browser tests.
 - `docs/`: architecture, roadmap, engineering rules, and security notes.
 - `.github/workflows/`: CI automation.
