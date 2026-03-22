@@ -23,6 +23,7 @@ import { ChatStore } from './store.ts'
 
 const sessionCookieName = 'showoff_chat_session'
 const idleThresholdMs = 45_000
+const typingExpiryMs = 4_000
 
 const args = new Map<string, string>()
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -138,6 +139,18 @@ const stopTyping = (scope: TypingScope, targetId: string, userId: string) => {
     },
     userId,
   )
+}
+
+const stopTypingForUser = (userId: string) => {
+  for (const key of [...typingTimeouts.keys()]) {
+    const [scope, targetId, typingUserId] = key.split(':')
+
+    if (typingUserId !== userId) {
+      continue
+    }
+
+    stopTyping(scope as TypingScope, targetId, userId)
+  }
 }
 
 app.disable('x-powered-by')
@@ -394,6 +407,7 @@ websocketServer.on('connection', (websocket, userId: string) => {
     userSockets.delete(websocket)
 
     if (userSockets.size === 0) {
+      stopTypingForUser(userId)
       socketsByUser.delete(userId)
       onPresenceChange(userId, 'offline')
     }
@@ -417,23 +431,23 @@ websocketServer.on('connection', (websocket, userId: string) => {
 
     if (existing) {
       clearTimeout(existing)
-    } else {
-      broadcastEvent(
-        {
-          type: 'typing.started',
-          scope: parsed.scope,
-          targetId: parsed.targetId,
-          userId,
-        },
-        userId,
-      )
     }
+
+    broadcastEvent(
+      {
+        type: 'typing.started',
+        scope: parsed.scope,
+        targetId: parsed.targetId,
+        userId,
+      },
+      userId,
+    )
 
     typingTimeouts.set(
       key,
       setTimeout(() => {
         stopTyping(parsed.scope, parsed.targetId, userId)
-      }, 2_200),
+      }, typingExpiryMs),
     )
   })
 })

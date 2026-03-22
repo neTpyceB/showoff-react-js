@@ -36,6 +36,11 @@ type TypingRecord = {
   userId: string
 }
 
+type PendingTypingRecord = {
+  scope: TypingScope
+  targetId: string
+}
+
 type RealtimeContextValue = {
   connectionState: ConnectionState
   typing: TypingRecord[]
@@ -64,6 +69,23 @@ export const ChatRealtimeProvider = ({
   const flushPending = useFlushPending(userId ?? undefined)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const heartbeatRef = useRef<number | null>(null)
+  const queuedTypingRef = useRef<Map<string, PendingTypingRecord>>(new Map())
+
+  const flushQueuedTyping = useEffectEvent(() => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    for (const entry of queuedTypingRef.current.values()) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'typing.start',
+          scope: entry.scope,
+          targetId: entry.targetId,
+        }),
+      )
+    }
+  })
 
   const syncOnOpen = useEffectEvent(() => {
     setTyping([])
@@ -77,6 +99,7 @@ export const ChatRealtimeProvider = ({
       queryKey: ['thread-replies'],
       type: 'active',
     })
+    flushQueuedTyping()
     void flushPending()
   })
 
@@ -205,6 +228,7 @@ export const ChatRealtimeProvider = ({
     if (!userId) {
       socketRef.current?.close()
       socketRef.current = null
+      queuedTypingRef.current.clear()
       const timeout = window.setTimeout(() => {
         setConnectionState('offline')
         setTyping([])
@@ -293,6 +317,9 @@ export const ChatRealtimeProvider = ({
       connectionState,
       typing,
       sendTyping: (scope, targetId) => {
+        const key = `${scope}:${targetId}`
+        queuedTypingRef.current.set(key, { scope, targetId })
+
         if (socketRef.current?.readyState !== WebSocket.OPEN) {
           return
         }
@@ -306,6 +333,8 @@ export const ChatRealtimeProvider = ({
         )
       },
       stopTyping: (scope, targetId) => {
+        queuedTypingRef.current.delete(`${scope}:${targetId}`)
+
         if (socketRef.current?.readyState !== WebSocket.OPEN) {
           return
         }

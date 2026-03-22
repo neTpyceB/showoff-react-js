@@ -58,6 +58,7 @@ const loginAs = async (page, firstName) => {
   await page.goto(`${baseURL}/login`)
   await page.getByRole('button', { name: `Sign in as ${firstName}` }).click()
   await page.waitForURL(/\/channels\/general$/)
+  await page.locator('.connection-pill[data-state="online"]').waitFor({ state: 'visible' })
 }
 
 const messageCard = (page, text) => page.locator('article').filter({ hasText: text }).first()

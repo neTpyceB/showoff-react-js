@@ -31,6 +31,8 @@ const formatTimestamp = (value: string) =>
     day: 'numeric',
   }).format(new Date(value))
 
+const typingStopDelayMs = 1_800
+
 const TypingLabel = ({
   names,
 }: {
@@ -112,7 +114,7 @@ const Composer = ({
 
           typingTimeout.current = window.setTimeout(() => {
             onTypingStop()
-          }, 900)
+          }, typingStopDelayMs)
         }}
         onBlur={() => {
           onTypingStop()
