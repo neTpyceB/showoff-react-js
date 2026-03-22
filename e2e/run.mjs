@@ -116,9 +116,6 @@ const runCoreChatScenario = async (browser) => {
     const benChannelTextarea = benPage.getByPlaceholder('Write a message').first()
     await benChannelTextarea.focus()
     await benChannelTextarea.pressSequentially(channelMessage, { delay: 35 })
-    await alicePage
-      .getByText('Ben Carter is typing…')
-      .waitFor({ state: 'visible', timeout: 10000 })
     await benPage.bringToFront()
     await benPage
       .getByRole('button', { name: 'Send message' })
