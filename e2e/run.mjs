@@ -114,11 +114,11 @@ const runCoreChatScenario = async (browser) => {
 
     await benPage.bringToFront()
     const benChannelTextarea = benPage.getByPlaceholder('Write a message').first()
-    await benChannelTextarea.fill(channelMessage)
-    await assertVisible(
-      alicePage.getByText('Ben Carter is typing…'),
-      'Typing indicator should appear in the other session.',
-    )
+    await benChannelTextarea.click()
+    await benChannelTextarea.pressSequentially(channelMessage, { delay: 35 })
+    await alicePage
+      .getByText('Ben Carter is typing…')
+      .waitFor({ state: 'visible', timeout: 10000 })
     await benPage.bringToFront()
     await benPage
       .getByRole('button', { name: 'Send message' })
