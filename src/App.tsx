@@ -1,117 +1,84 @@
-import { startTransition, useDeferredValue } from 'react'
-import { FilterBar } from './components/FilterBar.tsx'
-import { FinanceCharts } from './components/FinanceCharts.tsx'
-import { SummaryCards } from './components/SummaryCards.tsx'
-import { TransactionForm, type TransactionFormValues } from './components/TransactionForm.tsx'
-import { TransactionTable } from './components/TransactionTable.tsx'
-import { Button } from './components/Button.tsx'
-import { useToast } from './components/ToastProvider.tsx'
-import { createInitialState, financeStateSchema, storageKey } from './finance/model.ts'
-import { financeReducer } from './finance/reducer.ts'
-import { formatCurrency, selectInsights } from './finance/selectors.ts'
-import { usePersistentReducer } from './hooks/usePersistentReducer.ts'
+import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
+import { AppShell } from './components/AppShell.tsx'
+import { BoardPage } from './components/BoardPage.tsx'
+import { LoginPage } from './components/LoginPage.tsx'
+import { useSessionQuery, useSpacesQuery } from './kanban/hooks.ts'
 
-function App() {
-  const { pushToast } = useToast()
-  const [state, dispatch] = usePersistentReducer({
-    reducer: financeReducer,
-    initialState: createInitialState(),
-    storageKey,
-    schema: financeStateSchema,
-  })
-  const deferredQuery = useDeferredValue(state.filters.query)
-  const { visibleTransactions, summary, expenseBreakdown, monthlyTrend } =
-    selectInsights(state, deferredQuery)
+const LoadingScreen = ({ label }: { label: string }) => (
+  <main className="login-shell">
+    <section className="login-card">
+      <h1>{label}</h1>
+    </section>
+  </main>
+)
 
-  const handleSubmit = (values: TransactionFormValues) => {
-    startTransition(() => {
-      dispatch({ type: 'addTransaction', payload: values })
-    })
+const RootRedirect = () => {
+  const sessionQuery = useSessionQuery()
+  const spacesQuery = useSpacesQuery(sessionQuery.data?.id)
 
-    pushToast({
-      title: 'Transaction saved',
-      description: `${values.title} was added to the ledger.`,
-      tone: values.kind === 'income' ? 'success' : 'neutral',
-    })
+  if (sessionQuery.isPending) {
+    return <LoadingScreen label="Checking session" />
+  }
+
+  if (!sessionQuery.data) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (spacesQuery.isPending) {
+    return <LoadingScreen label="Loading team spaces" />
+  }
+
+  const firstSpace = spacesQuery.data?.[0]
+
+  if (!firstSpace) {
+    return <LoadingScreen label="No accessible spaces found" />
+  }
+
+  return <Navigate to={`/spaces/${firstSpace.id}`} replace />
+}
+
+const ProtectedRoute = () => {
+  const sessionQuery = useSessionQuery()
+  const { spaceId = '' } = useParams()
+
+  if (sessionQuery.isPending) {
+    return <LoadingScreen label="Checking session" />
+  }
+
+  if (!sessionQuery.data) {
+    return <Navigate to="/login" replace />
   }
 
   return (
-    <main className="app-shell finance-shell">
-      <section className="hero-card">
-        <div className="hero-copy">
-          <p className="eyebrow">Financial operations</p>
-          <h1>Personal Finance Tracker</h1>
-          <p className="hero-text">
-            Reducer-driven transaction tracking with local persistence, derived
-            analytics, schema validation, filters, and browser-tested workflows.
-          </p>
-        </div>
-        <div className="hero-actions">
-          <div className="hero-balance">
-            <span>Current balance</span>
-            <strong>{formatCurrency(summary.balance)}</strong>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              startTransition(() => {
-                dispatch({ type: 'resetDemo' })
-              })
-              pushToast({
-                title: 'Demo data restored',
-                description: 'The dashboard has been reset to the seeded portfolio.',
-              })
-            }}
-          >
-            Restore demo data
-          </Button>
-        </div>
-      </section>
+    <AppShell activeSpaceId={spaceId}>
+      <Outlet />
+    </AppShell>
+  )
+}
 
-      <SummaryCards summary={summary} />
+const LoginRoute = () => {
+  const sessionQuery = useSessionQuery()
 
-      <section className="workspace-grid">
-        <TransactionForm onSubmit={handleSubmit} />
+  if (sessionQuery.isPending) {
+    return <LoadingScreen label="Checking session" />
+  }
 
-        <div className="side-stack">
-          <FilterBar
-            filters={state.filters}
-            onChange={(nextFilters) => {
-              startTransition(() => {
-                dispatch({ type: 'setFilters', payload: nextFilters })
-              })
-            }}
-            onReset={() => {
-              startTransition(() => {
-                dispatch({ type: 'resetFilters' })
-              })
-            }}
-          />
-          <FinanceCharts
-            expenseBreakdown={expenseBreakdown}
-            monthlyTrend={monthlyTrend}
-          />
-        </div>
-      </section>
+  if (sessionQuery.data) {
+    return <Navigate to="/" replace />
+  }
 
-      <TransactionTable
-        transactions={visibleTransactions}
-        onDelete={(id) => {
-          const transaction = state.transactions.find((item) => item.id === id)
+  return <LoginPage />
+}
 
-          startTransition(() => {
-            dispatch({ type: 'deleteTransaction', payload: { id } })
-          })
-
-          if (transaction) {
-            pushToast({
-              title: 'Transaction removed',
-              description: `${transaction.title} was removed from the ledger.`,
-            })
-          }
-        }}
-      />
-    </main>
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/" element={<RootRedirect />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/spaces/:spaceId" element={<BoardPage />} />
+      </Route>
+    </Routes>
   )
 }
 

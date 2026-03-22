@@ -2,15 +2,15 @@
 
 ## Current scope
 
-- Reducer-driven finance tracker
-- Validated transaction workflow
-- Search and category filters
-- Local persistence and analytics charts
+- Authenticated Kanban experience
+- Team spaces with role-aware permissions
+- Optimistic drag-and-drop movement
+- Cached board sync and explicit errors
 
 ## Next candidates
 
-- Edit flow with optimistic validation
-- Budget targets and variance alerts
-- CSV import/export
-- Storage version migrations for future schema changes
-- Multi-account and recurring-transaction support
+- Task detail drawer with comments and activity log
+- Real API backend and token session model
+- Invite flow and space administration
+- Real-time board sync over websockets
+- Audit log for permission-sensitive actions
