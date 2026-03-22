@@ -2,22 +2,25 @@
 
 ## Overview
 
-The app is organized around a finance domain rather than page-local state:
+The app is structured around a client-rendered UI plus a typed mock API boundary:
 
-- `src/finance/model.ts` defines categories, schemas, seeded data, and persisted state shape.
-- `src/finance/reducer.ts` owns transaction and filter mutations through a pure reducer.
-- `src/finance/selectors.ts` computes filtered transactions, summary metrics, breakdowns, and chart series.
-- `src/hooks/usePersistentReducer.ts` hydrates and persists reducer state to local storage with schema validation.
-- `src/components/` contains presentation surfaces for the form, filters, charts, summary cards, and ledger.
+- `src/kanban/model.ts` defines users, team spaces, tasks, roles, and persisted schemas.
+- `src/kanban/api.ts` is the server-sync boundary used by the UI. It enforces access and persistence rules.
+- `src/kanban/hooks.ts` owns query keys, cached data access, optimistic task movement, and mutations.
+- `src/kanban/permissions.ts` centralizes role checks.
+- `src/kanban/board.ts` contains deterministic board movement logic used by both optimistic updates and the API.
+- `src/components/` contains the routed UI shell, login surface, task composer, and Kanban board.
 
-## State strategy
+## Routing and access
 
-- Source of truth is a single reducer state containing transactions, filters, and the deterministic `nextId`.
-- Derived values are calculated through selector functions instead of duplicated in component state.
-- Filter updates are wrapped in transitions to keep the UI responsive as analytics recalculate.
+- `/login` is the only public route.
+- `/` redirects authenticated users to the first accessible team space.
+- `/spaces/:spaceId` is protected and membership-scoped. Missing session redirects to `/login`. Missing membership returns an explicit board access error.
 
-## Rendering strategy
+## State and sync
 
-- Charts are implemented with native SVG and CSS instead of a charting dependency to keep the bundle lean.
-- Toasts remain a provider-level concern because they cross-cut form, delete, and reset actions.
-- Persistence is local-first and validated before hydration to avoid corrupt state entering the UI.
+- TanStack Query handles session, team-space lists, and board caching.
+- Column drag-and-drop task movement uses optimistic cache updates, then syncs through the API layer.
+- Keyboard task movement is a first-class interaction and commits through the same mutation path as pointer drag.
+- Failed task movement rolls back to the previous cached board state.
+- Task creation is server-authoritative and invalidates board and space queries on success.

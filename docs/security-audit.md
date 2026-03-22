@@ -2,13 +2,14 @@
 
 ## Baseline review
 
-- No secrets or network credentials are stored in the client.
-- Hydrated local storage is schema-validated before use.
-- User-entered data is rendered as plain text only.
-- There are no dangerous HTML injection paths.
+- Public access is limited to `/login`.
+- Team-space routes require an authenticated session.
+- Space access is checked server-side in the mock API before board data is returned.
+- Viewer roles cannot create or move tasks.
+- Invalid persisted session or database data throws explicit errors rather than silently recovering.
 
-## Operational notes
+## Exposure notes
 
-- Local persistence is appropriate for a demo tracker but should be encrypted or moved server-side for real financial records.
-- If the project grows into authenticated finance tooling, add CSP, secure headers, and server-side audit logging.
-- Re-run dependency review whenever persistence or import/export capabilities expand.
+- `localhost:5173` and `localhost:4173` are intentional local-only development surfaces.
+- No additional public URLs or unprotected routes are exposed by the app.
+- When moved to a real backend, route protection must be enforced on the server as well as in the client.
