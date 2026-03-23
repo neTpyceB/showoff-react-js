@@ -1,19 +1,32 @@
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { hydrateRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.tsx'
 import { ToastProvider } from './components/ToastProvider.tsx'
+import type { AppState } from './commerce/state.ts'
 import './index.css'
 
-const queryClient = new QueryClient()
+declare global {
+  interface Window {
+    __APP_STATE__?: AppState
+  }
+}
 
-createRoot(document.getElementById('root')!).render(
+const queryClient = new QueryClient()
+const initialState = window.__APP_STATE__
+
+if (!initialState) {
+  throw new Error('SSR app state was not found.')
+}
+
+hydrateRoot(
+  document.getElementById('root')!,
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ToastProvider>
-          <App />
+          <App initialState={initialState} />
         </ToastProvider>
       </BrowserRouter>
     </QueryClientProvider>

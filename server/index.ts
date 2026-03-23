@@ -1,29 +1,31 @@
-import { createServer } from 'node:http'
-import { existsSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { createServer as createHttpServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import cookieParser from 'cookie-parser'
-import express, {
-  type NextFunction,
-  type Request,
-  type Response,
-} from 'express'
-import multer from 'multer'
-import { WebSocketServer } from 'ws'
+import express, { type NextFunction, type Request, type Response } from 'express'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
+import { StaticRouter } from 'react-router'
 import {
-  getAttachmentKind,
-  sendMessageInputSchema,
-  sendReplyInputSchema,
+  addCartItemSchema,
+  analyticsRequestSchema,
+  catalogQuerySchema,
+  checkoutConfirmSchema,
+  checkoutRequestSchema,
+  createPromotionSchema,
+  loginRequestSchema,
   sessionSchema,
-  uploadResponseSchema,
-  wsClientEventSchema,
-  type TypingScope,
-  type WsServerEvent,
-} from '../src/chat/model.ts'
-import { ChatStore } from './store.ts'
+  updateCartItemSchema,
+  updateInventorySchema,
+  updateOrderSchema,
+  updateProductSchema,
+} from '../src/commerce/model.ts'
+import { App } from '../src/App.tsx'
+import { ToastProvider } from '../src/components/ToastProvider.tsx'
+import { createEmptyAppState, type AppState, type SeoMeta } from '../src/commerce/state.ts'
+import { CommerceStore } from './store.ts'
 
-const sessionCookieName = 'showoff_chat_session'
-const idleThresholdMs = 45_000
-const typingExpiryMs = 4_000
+const sessionCookieName = 'showoff_store_session'
 
 const args = new Map<string, string>()
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -37,139 +39,275 @@ for (let index = 2; index < process.argv.length; index += 2) {
 
 const host = args.get('--host') ?? '127.0.0.1'
 const mode = args.get('--mode') ?? 'preview'
-const port = Number(args.get('--port') ?? (mode === 'preview' ? '4173' : '3001'))
+const port = Number(args.get('--port') ?? (mode === 'preview' ? '4173' : '5173'))
 
-const store = new ChatStore()
+const store = new CommerceStore()
 const app = express()
-const upload = multer({
-  dest: store.getUploadsDirectory(),
-  limits: {
-    fileSize: 8 * 1024 * 1024,
-    files: 1,
-  },
-})
-const server = createServer(app)
-const socketsByUser = new Map<string, Set<import('ws').WebSocket>>()
-const typingTimeouts = new Map<string, NodeJS.Timeout>()
+const httpServer = createHttpServer(app)
+const vite =
+  mode === 'dev'
+    ? await (async () => {
+        const { createServer } = await import('vite')
 
-const sendEvent = (userId: string, event: WsServerEvent) => {
-  const sockets = socketsByUser.get(userId)
+        return createServer({
+          server: { middlewareMode: true },
+          appType: 'custom',
+        })
+      })()
+    : null
 
-  if (!sockets) {
+type Locals = {
+  userId: string | null
+}
+
+const getUserId = (request: Request) => {
+  const sessionId = request.cookies[sessionCookieName] as string | undefined
+  return store.getUserIdForSession(sessionId)
+}
+
+const requireRole =
+  (allowedRoles: Array<'customer' | 'admin'>) =>
+  (request: Request, response: Response<unknown, Locals>, next: NextFunction) => {
+    const userId = getUserId(request)
+
+    if (!userId) {
+      response.status(401).json({ message: 'Authentication is required.' })
+      return
+    }
+
+    const session = store.getSessionPayload(userId)
+
+    if (!session || session.role === 'guest' || !allowedRoles.includes(session.role)) {
+      response.status(403).json({ message: 'You do not have access to this resource.' })
+      return
+    }
+
+    response.locals.userId = userId
+    next()
+  }
+
+const withOptionalSession = (
+  request: Request,
+  response: Response<unknown, Locals>,
+  next: NextFunction,
+) => {
+  response.locals.userId = getUserId(request)
+  next()
+}
+
+const escapeJson = (value: unknown) =>
+  JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+
+const buildSeo = (pathname: string, search: URLSearchParams, state: AppState): SeoMeta => {
+  if (pathname === '/') {
+    return {
+      title: 'Showoff Electronics',
+      description: 'Premium electronics storefront with curated devices, fast checkout, and operational admin tooling.',
+      canonicalPath: '/',
+    }
+  }
+
+  if (pathname === '/catalog' || pathname === '/search') {
+    const q = search.get('q')
+    return {
+      title: q ? `Search: ${q} | Showoff Electronics` : 'Catalog | Showoff Electronics',
+      description: 'Browse flagship electronics, creator gear, travel audio, and high-end desk setups.',
+      canonicalPath: pathname === '/search' ? `/search${search.toString() ? `?${search.toString()}` : ''}` : '/catalog',
+    }
+  }
+
+  if (pathname.startsWith('/catalog/') && state.product) {
+    return {
+      title: `${state.product.product.name} | Showoff Electronics`,
+      description: state.product.product.description,
+      canonicalPath: pathname,
+      structuredData: store.getStructuredProduct(state.product.product.slug),
+    }
+  }
+
+  if (pathname === '/cart') {
+    return {
+      title: 'Cart | Showoff Electronics',
+      description: 'Review line items, apply promotions, and prepare for checkout.',
+      canonicalPath: pathname,
+    }
+  }
+
+  if (pathname === '/checkout') {
+    return {
+      title: 'Checkout | Showoff Electronics',
+      description: 'Secure purchase flow with shipping details and Stripe-style test checkout.',
+      canonicalPath: pathname,
+    }
+  }
+
+  if (pathname.startsWith('/admin')) {
+    return {
+      title: 'Admin | Showoff Electronics',
+      description: 'Operational commerce dashboard for products, inventory, orders, and promotions.',
+      canonicalPath: pathname,
+    }
+  }
+
+  return {
+    title: 'Showoff Electronics',
+    description: 'Premium electronics storefront with account and admin experiences.',
+    canonicalPath: pathname,
+  }
+}
+
+const buildState = (request: Request): { state: AppState; redirect?: string } => {
+  const url = new URL(request.originalUrl, `http://${host}:${port}`)
+  const pathname = url.pathname
+  const userId = getUserId(request)
+  const session = store.getSessionPayload(userId)
+  const state = createEmptyAppState()
+
+  state.session = session
+  state.bootstrap = store.getBootstrap(userId)
+  state.cart = store.getCart(userId)
+  state.promotions = store.getPromotions()
+
+  if (pathname === '/' || pathname === '/catalog' || pathname === '/search') {
+    const query = catalogQuerySchema.parse({
+      q: url.searchParams.get('q') ?? '',
+      category: url.searchParams.get('category') ?? 'all',
+      brand: url.searchParams.get('brand') ?? 'all',
+      availability: url.searchParams.get('availability') ?? 'all',
+      rating: url.searchParams.get('rating') ?? '0',
+      priceMin: url.searchParams.get('priceMin') ?? '0',
+      priceMax: url.searchParams.get('priceMax') ?? '5000',
+      sort: url.searchParams.get('sort') ?? 'featured',
+    })
+
+    state.catalog = store.getCatalog(query)
+  }
+
+  if (pathname.startsWith('/catalog/')) {
+    const slug = pathname.replace('/catalog/', '')
+    state.product = store.getProduct(slug)
+  }
+
+  if (pathname.startsWith('/account')) {
+    if (!session || session.role !== 'customer') {
+      return { state, redirect: '/login' }
+    }
+
+    state.accountOrders = store.getOrdersForCustomer(session.id)
+    const profile = store.getAccountProfile(session.id)
+    state.profile = {
+      user: session,
+      savedAddresses: profile.savedAddresses,
+    }
+  }
+
+  if (pathname.startsWith('/admin')) {
+    if (!session || session.role !== 'admin') {
+      return { state, redirect: '/login' }
+    }
+
+    state.adminSummary = store.getAdminSummary()
+    state.adminProducts = store.getAdminProducts()
+    state.adminOrders = store.getAdminOrders()
+    state.inventory = store.getInventory()
+    state.customers = store.getAdminCustomers()
+  }
+
+  if (pathname === '/checkout/success' && session) {
+    const sessionId = url.searchParams.get('session_id')
+
+    if (sessionId) {
+      try {
+        state.lastOrder = store.confirmCheckout(sessionId)
+        state.accountOrders = store.getOrdersForCustomer(session.id)
+      } catch {
+        state.lastOrder = null
+      }
+      state.cart = store.getCart(session.id)
+    }
+  }
+
+  state.seo = buildSeo(pathname, url.searchParams, state)
+  return { state }
+}
+
+const renderPage = async (request: Request, response: Response) => {
+  const { state, redirect } = buildState(request)
+
+  if (redirect) {
+    response.redirect(302, redirect)
     return
   }
 
-  const serialized = JSON.stringify(event)
-
-  for (const socket of sockets) {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(serialized)
-    }
-  }
-}
-
-const broadcastEvent = (event: WsServerEvent, exceptUserId?: string) => {
-  for (const user of store.getBootstrap('alice').users) {
-    if (user.id === exceptUserId) {
-      continue
-    }
-
-    sendEvent(user.id, event)
-  }
-}
-
-const channelUpdateForAllUsers = (channelId: string) => {
-  for (const user of store.getBootstrap('alice').users) {
-    sendEvent(user.id, {
-      type: 'channel.updated',
-      channel: store.getChannelSummary(user.id, channelId),
-    })
-  }
-}
-
-const requireUserId = (request: Request) => {
-  const sessionId = request.cookies[sessionCookieName] as string | undefined
-  const userId = store.getUserIdForSession(sessionId)
-
-  if (!userId) {
-    throw new Error('Unauthorized')
-  }
-
-  return userId
-}
-
-const onPresenceChange = (userId: string, state: import('../src/chat/model.ts').PresenceState) => {
-  const presence = store.updatePresence(userId, state)
-  broadcastEvent({
-    type: 'presence.updated',
-    userId,
-    state: presence.state,
-    lastActiveAt: presence.lastActiveAt,
-  })
-}
-
-const touchPresence = (userId: string) => {
-  const presence = store.touchPresence(userId)
-  broadcastEvent({
-    type: 'presence.updated',
-    userId,
-    state: presence.state,
-    lastActiveAt: presence.lastActiveAt,
-  })
-}
-
-const typingKey = (scope: TypingScope, targetId: string, userId: string) =>
-  `${scope}:${targetId}:${userId}`
-
-const stopTyping = (scope: TypingScope, targetId: string, userId: string) => {
-  const key = typingKey(scope, targetId, userId)
-  const timeout = typingTimeouts.get(key)
-
-  if (timeout) {
-    clearTimeout(timeout)
-    typingTimeouts.delete(key)
-  }
-
-  broadcastEvent(
-    {
-      type: 'typing.stopped',
-      scope,
-      targetId,
-      userId,
-    },
-    userId,
+  const appHtml = renderToString(
+    createElement(
+      StaticRouter,
+      { location: request.originalUrl },
+      createElement(ToastProvider, null, createElement(App, { initialState: state })),
+    ),
   )
-}
 
-const stopTypingForUser = (userId: string) => {
-  for (const key of [...typingTimeouts.keys()]) {
-    const [scope, targetId, typingUserId] = key.split(':')
+  const payloadScript = `<script>window.__APP_STATE__=${escapeJson(state)}</script>`
+  const metaScript = state.seo.structuredData
+    ? `<script type="application/ld+json">${escapeJson(state.seo.structuredData)}</script>`
+    : ''
 
-    if (typingUserId !== userId) {
-      continue
-    }
+  if (mode === 'dev') {
+    const template = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
+    const html = await vite!.transformIndexHtml(
+      request.originalUrl,
+      template
+        .replace(/<title>.*<\/title>/, `<title>${state.seo.title}</title>`)
+        .replace(
+          '</head>',
+          `<meta name="description" content="${state.seo.description}" />
+<link rel="canonical" href="${state.seo.canonicalPath}" />
+${metaScript}
+</head>`,
+        )
+        .replace('<div id="root"></div>', `<div id="root">${appHtml}</div>${payloadScript}`),
+    )
 
-    stopTyping(scope as TypingScope, targetId, userId)
+    response.status(200).set({ 'Content-Type': 'text/html' }).end(html)
+    return
   }
+
+  const template = readFileSync(resolve(process.cwd(), 'dist/index.html'), 'utf8')
+  const html = template
+    .replace(/<title>.*<\/title>/, `<title>${state.seo.title}</title>`)
+    .replace(
+      '</head>',
+      `<meta name="description" content="${state.seo.description}" />
+<link rel="canonical" href="${state.seo.canonicalPath}" />
+${metaScript}
+</head>`,
+    )
+    .replace('<div id="root"></div>', `<div id="root">${appHtml}</div>${payloadScript}`)
+
+  response.status(200).set({ 'Content-Type': 'text/html' }).end(html)
 }
 
 app.disable('x-powered-by')
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
+app.use(withOptionalSession)
 
-app.get('/api/healthz', (_request: Request, response: Response) => {
+if (mode !== 'dev') {
+  app.use(express.static(resolve(process.cwd(), 'dist'), { index: false }))
+}
+
+app.get('/api/healthz', (_request, response) => {
   response.json({ ok: true })
 })
 
-app.get('/api/session', (request: Request, response: Response) => {
-  const sessionId = request.cookies[sessionCookieName] as string | undefined
-  const userId = store.getUserIdForSession(sessionId)
-  response.json(sessionSchema.parse(store.getSessionPayload(userId)))
+app.get('/api/session', (_request, response: Response<unknown, Locals>) => {
+  response.json(sessionSchema.nullable().parse(store.getSessionPayload(response.locals.userId)))
 })
 
-app.post('/api/session/login', (request: Request, response: Response) => {
-  const userId = String(request.body?.userId ?? '')
-  const sessionId = store.createSession(userId)
+app.post('/api/session/login', (request, response) => {
+  const input = loginRequestSchema.parse(request.body)
+  const sessionId = store.createSession(input.userId)
+  const session = store.getSessionPayload(input.userId)
 
   response.cookie(sessionCookieName, sessionId, {
     httpOnly: true,
@@ -177,20 +315,13 @@ app.post('/api/session/login', (request: Request, response: Response) => {
     secure: false,
     path: '/',
   })
-  touchPresence(userId)
-  response.status(201).json(store.getSessionPayload(userId))
+  response.status(201).json(session)
 })
 
-app.post('/api/session/logout', (request: Request, response: Response) => {
+app.post('/api/session/logout', (request, response) => {
   const sessionId = request.cookies[sessionCookieName] as string | undefined
 
   if (sessionId) {
-    const userId = store.getUserIdForSession(sessionId)
-
-    if (userId) {
-      onPresenceChange(userId, 'offline')
-    }
-
     store.destroySession(sessionId)
   }
 
@@ -198,266 +329,186 @@ app.post('/api/session/logout', (request: Request, response: Response) => {
   response.status(204).end()
 })
 
-app.use('/api', (request: Request, response: Response, next: NextFunction) => {
-  if (request.path === '/session' || request.path === '/session/login' || request.path === '/healthz') {
-    next()
-    return
-  }
-
-  try {
-    const userId = requireUserId(request)
-    touchPresence(userId)
-    response.locals.userId = userId
-    next()
-  } catch {
-    response.status(401).json({ message: 'Authentication is required.' })
-  }
-})
-
-app.get('/api/bootstrap', (_request: Request, response: Response) => {
+app.get('/api/bootstrap', (_request, response: Response<unknown, Locals>) => {
   response.json(store.getBootstrap(response.locals.userId))
 })
 
-app.get('/api/channels/:channelId/messages', (request: Request, response: Response) => {
-  const channelId = String(request.params.channelId)
-
+app.get('/api/catalog', (request, response) => {
   response.json(
-    store.getMessages(response.locals.userId, channelId, request.query.cursor as string | undefined),
+    store.getCatalog(
+      catalogQuerySchema.parse({
+        q: request.query.q ?? '',
+        category: request.query.category ?? 'all',
+        brand: request.query.brand ?? 'all',
+        availability: request.query.availability ?? 'all',
+        rating: request.query.rating ?? '0',
+        priceMin: request.query.priceMin ?? '0',
+        priceMax: request.query.priceMax ?? '5000',
+        sort: request.query.sort ?? 'featured',
+      }),
+    ),
   )
 })
 
-app.get('/api/messages/:messageId/thread', (request: Request, response: Response) => {
-  const messageId = String(request.params.messageId)
-
+app.get('/api/search', (request, response) => {
   response.json(
-    store.getThreadReplies(response.locals.userId, messageId, request.query.cursor as string | undefined),
+    store.getCatalog(
+      catalogQuerySchema.parse({
+        q: request.query.q ?? '',
+        category: request.query.category ?? 'all',
+        brand: request.query.brand ?? 'all',
+        availability: request.query.availability ?? 'all',
+        rating: request.query.rating ?? '0',
+        priceMin: request.query.priceMin ?? '0',
+        priceMax: request.query.priceMax ?? '5000',
+        sort: request.query.sort ?? 'featured',
+      }),
+    ),
   )
 })
 
-app.post('/api/channels/:channelId/messages', (request: Request, response: Response) => {
-  const channelId = String(request.params.channelId)
-  const input = sendMessageInputSchema.parse(request.body)
-  const message = store.createMessage({
-    userId: response.locals.userId,
-    channelId,
-    clientId: input.clientId,
-    body: input.body,
-    attachmentIds: input.attachmentIds,
-  })
+app.get('/api/products/:slug', (request, response) => {
+  response.json(store.getProduct(String(request.params.slug)))
+})
 
-  sendEvent(response.locals.userId, {
-    type: 'message.acknowledged',
-    clientId: input.clientId,
-    canonicalId: message.id,
-    createdAt: message.createdAt,
-    version: message.version,
-    scope: 'channel',
-    targetId: channelId,
-  })
-  broadcastEvent({
-    type: 'message.created',
-    message: store.getMessages(response.locals.userId, channelId, undefined).items.at(-1)!,
-  })
-  channelUpdateForAllUsers(channelId)
+app.get('/api/cart', (_request, response: Response<unknown, Locals>) => {
+  response.json(store.getCart(response.locals.userId))
+})
 
+app.post('/api/cart/items', requireRole(['customer']), (request, response: Response<unknown, Locals>) => {
+  const input = addCartItemSchema.parse(request.body)
+  response.status(201).json(
+    store.addCartItem(response.locals.userId!, input.productId, input.variantId, input.quantity),
+  )
+})
+
+app.patch('/api/cart/items/:itemId', requireRole(['customer']), (request, response: Response<unknown, Locals>) => {
+  const input = updateCartItemSchema.parse(request.body)
+  response.json(store.updateCartItem(response.locals.userId!, String(request.params.itemId), input.quantity))
+})
+
+app.delete('/api/cart/items/:itemId', requireRole(['customer']), (request, response: Response<unknown, Locals>) => {
+  response.json(store.removeCartItem(response.locals.userId!, String(request.params.itemId)))
+})
+
+app.post('/api/cart/promo', requireRole(['customer']), (request, response: Response<unknown, Locals>) => {
+  response.json(store.applyPromotion(response.locals.userId!, String(request.body?.code ?? '')))
+})
+
+app.post('/api/checkout/session', requireRole(['customer']), (request, response: Response<unknown, Locals>) => {
+  const input = checkoutRequestSchema.parse(request.body)
+  response.status(201).json(
+    store.createCheckoutSession(response.locals.userId!, input.address, input.shippingMethod),
+  )
+})
+
+app.post('/api/checkout/confirm', requireRole(['customer']), (request, response) => {
+  const input = checkoutConfirmSchema.parse(request.body)
+  response.status(201).json(store.confirmCheckout(input.sessionId))
+})
+
+app.get('/api/account/orders', requireRole(['customer']), (_request, response: Response<unknown, Locals>) => {
+  response.json(store.getOrdersForCustomer(response.locals.userId!))
+})
+
+app.get('/api/account/profile', requireRole(['customer']), (_request, response: Response<unknown, Locals>) => {
+  response.json(store.getAccountProfile(response.locals.userId!))
+})
+
+app.get('/api/admin/summary', requireRole(['admin']), (_request, response) => {
+  response.json(store.getAdminSummary())
+})
+
+app.get('/api/admin/products', requireRole(['admin']), (_request, response) => {
+  response.json(store.getAdminProducts())
+})
+
+app.patch('/api/admin/products/:productId', requireRole(['admin']), (request, response) => {
+  const input = updateProductSchema.parse(request.body)
+  response.json(store.updateProduct(String(request.params.productId), input.badge, input.featured))
+})
+
+app.get('/api/admin/orders', requireRole(['admin']), (_request, response) => {
+  response.json(store.getAdminOrders())
+})
+
+app.patch('/api/admin/orders/:orderId', requireRole(['admin']), (request, response) => {
+  const input = updateOrderSchema.parse(request.body)
+  response.json(store.updateOrder(String(request.params.orderId), input.status))
+})
+
+app.get('/api/admin/inventory', requireRole(['admin']), (_request, response) => {
+  response.json(store.getInventory())
+})
+
+app.patch('/api/admin/inventory/:sku', requireRole(['admin']), (request, response) => {
+  const input = updateInventorySchema.parse(request.body)
+  response.json(store.updateInventory(String(request.params.sku), input.inventory))
+})
+
+app.get('/api/admin/promotions', requireRole(['admin']), (_request, response) => {
+  response.json(store.getPromotions())
+})
+
+app.post('/api/admin/promotions', requireRole(['admin']), (request, response) => {
+  const input = createPromotionSchema.parse(request.body)
+  response.status(201).json(
+    store.createPromotion({
+      code: input.code,
+      label: input.label,
+      type: input.type,
+      amount: input.amount,
+      active: true,
+    }),
+  )
+})
+
+app.get('/api/admin/customers', requireRole(['admin']), (_request, response) => {
+  response.json(store.getAdminCustomers())
+})
+
+app.post('/api/analytics/events', (request, response) => {
+  const input = analyticsRequestSchema.parse(request.body)
+  store.captureAnalytics({
+    type: input.type,
+    detail: input.detail,
+    createdAt: new Date().toISOString(),
+  })
   response.status(202).json({ accepted: true })
 })
 
-app.post('/api/messages/:messageId/replies', (request: Request, response: Response) => {
-  const messageId = String(request.params.messageId)
-  const input = sendReplyInputSchema.parse(request.body)
-  const reply = store.createReply({
-    userId: response.locals.userId,
-    messageId,
-    clientId: input.clientId,
-    body: input.body,
-  })
+app.use((request, response, next) => {
+  const session = store.getSessionPayload(getUserId(request))
 
-  sendEvent(response.locals.userId, {
-    type: 'message.acknowledged',
-    clientId: input.clientId,
-    canonicalId: reply.id,
-    createdAt: reply.createdAt,
-    version: reply.version,
-    scope: 'thread',
-    targetId: messageId,
-  })
-  broadcastEvent({
-    type: 'reply.created',
-    reply,
-    messageId,
-    channelId: store.getChannelIdForMessage(messageId),
-    replyCount: store.getThreadReplies(response.locals.userId, messageId, undefined).items.length,
-  })
-  response.status(202).json({ accepted: true })
-})
-
-app.post('/api/uploads', upload.single('file'), (request: Request, response: Response) => {
-  if (!request.file) {
-    response.status(400).json({ message: 'No upload was received.' })
+  if ((request.path === '/account' || request.path.startsWith('/account/')) && (!session || session.role !== 'customer')) {
+    response.redirect(302, '/login')
     return
   }
 
-  const attachment = store.createUpload({
-    userId: response.locals.userId,
-    fileName: request.file.originalname,
-    mimeType: request.file.mimetype,
-    size: request.file.size,
-    absolutePath: request.file.path,
-    kind: getAttachmentKind(request.file.mimetype),
-  })
-
-  response.status(201).json(uploadResponseSchema.parse(store.toPublicAttachment(attachment)))
-})
-
-app.get('/api/uploads/:attachmentId/content', (request: Request, response: Response) => {
-  try {
-    requireUserId(request)
-    const attachment = store.getAttachment(String(request.params.attachmentId))
-    response.type(attachment.mimeType)
-    response.sendFile(attachment.absolutePath)
-  } catch (error) {
-    response.status(404).json({ message: error instanceof Error ? error.message : 'Attachment was not found.' })
-  }
-})
-
-app.post('/api/channels/:channelId/read', (request: Request, response: Response) => {
-  const channelId = String(request.params.channelId)
-  const channel = store.markChannelRead(response.locals.userId, channelId)
-  sendEvent(response.locals.userId, {
-    type: 'read.updated',
-    scope: 'channel',
-    targetId: channelId,
-    unreadCount: channel.unreadCount,
-  })
-  sendEvent(response.locals.userId, {
-    type: 'channel.updated',
-    channel,
-  })
-  response.status(204).end()
-})
-
-app.post(
-  '/api/messages/:messageId/thread/read',
-  (request: Request, response: Response) => {
-    const messageId = String(request.params.messageId)
-    const result = store.markThreadRead(response.locals.userId, messageId)
-  sendEvent(response.locals.userId, {
-    type: 'read.updated',
-    scope: 'thread',
-      targetId: messageId,
-    unreadCount: result.unreadCount,
-  })
-    response.status(204).end()
-  },
-)
-
-if (mode === 'preview') {
-  const distPath = resolve(process.cwd(), 'dist')
-
-  if (!existsSync(join(distPath, 'index.html'))) {
-    throw new Error('Preview mode requires a built client. Run npm run build first.')
+  if ((request.path === '/admin' || request.path.startsWith('/admin/')) && (!session || session.role !== 'admin')) {
+    response.redirect(302, '/login')
+    return
   }
 
-  app.use(express.static(distPath))
-  app.use((_request: Request, response: Response) => {
-    response.sendFile(join(distPath, 'index.html'))
+  next()
+})
+
+if (vite) {
+  app.use((request, response, next) => {
+    if (request.path.startsWith('/api') || request.path.startsWith('/@') || request.path.includes('.')) {
+      next()
+      return
+    }
+
+    void renderPage(request, response)
+  })
+  app.use(vite.middlewares)
+} else {
+  app.use((request, response) => {
+    void renderPage(request, response)
   })
 }
 
-const websocketServer = new WebSocketServer({ noServer: true })
-
-server.on('upgrade', (request, socket, head) => {
-  if (!request.url?.startsWith('/ws')) {
-    socket.destroy()
-    return
-  }
-
-  const rawCookie = request.headers.cookie ?? ''
-  const sessionCookie = rawCookie
-    .split(';')
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith(`${sessionCookieName}=`))
-    ?.slice(sessionCookieName.length + 1)
-  const userId = store.getUserIdForSession(sessionCookie)
-
-  if (!userId) {
-    socket.destroy()
-    return
-  }
-
-  websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-    websocketServer.emit('connection', websocket, userId)
-  })
-})
-
-websocketServer.on('connection', (websocket, userId: string) => {
-  const sockets = socketsByUser.get(userId) ?? new Set()
-  sockets.add(websocket)
-  socketsByUser.set(userId, sockets)
-  touchPresence(userId)
-
-  websocket.on('close', () => {
-    const userSockets = socketsByUser.get(userId)
-
-    if (!userSockets) {
-      return
-    }
-
-    userSockets.delete(websocket)
-
-    if (userSockets.size === 0) {
-      stopTypingForUser(userId)
-      socketsByUser.delete(userId)
-      onPresenceChange(userId, 'offline')
-    }
-  })
-
-  websocket.on('message', (buffer) => {
-    const parsed = wsClientEventSchema.parse(JSON.parse(String(buffer)))
-    touchPresence(userId)
-
-    if (parsed.type === 'heartbeat') {
-      return
-    }
-
-    if (parsed.type === 'typing.stop') {
-      stopTyping(parsed.scope, parsed.targetId, userId)
-      return
-    }
-
-    const key = typingKey(parsed.scope, parsed.targetId, userId)
-    const existing = typingTimeouts.get(key)
-
-    if (existing) {
-      clearTimeout(existing)
-    }
-
-    broadcastEvent(
-      {
-        type: 'typing.started',
-        scope: parsed.scope,
-        targetId: parsed.targetId,
-        userId,
-      },
-      userId,
-    )
-
-    typingTimeouts.set(
-      key,
-      setTimeout(() => {
-        stopTyping(parsed.scope, parsed.targetId, userId)
-      }, typingExpiryMs),
-    )
-  })
-})
-
-setInterval(() => {
-  for (const presence of store.getIdleUsers(idleThresholdMs)) {
-    onPresenceChange(presence.userId, 'idle')
-  }
-}, 5_000)
-
-server.listen(port, host, () => {
-  console.log(`chat server listening on http://${host}:${port}`)
+httpServer.listen(port, host, () => {
+  console.log(`commerce server listening on http://${host}:${port}`)
 })

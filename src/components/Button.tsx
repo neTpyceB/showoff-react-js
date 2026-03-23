@@ -1,3 +1,4 @@
+/* @jsxRuntime automatic */
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { cx } from '../lib/cx.ts'
 

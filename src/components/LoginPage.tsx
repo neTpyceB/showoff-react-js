@@ -1,35 +1,35 @@
-import { useLoginMutation } from '../chat/hooks.ts'
+/* @jsxRuntime automatic */
+import { useNavigate } from 'react-router-dom'
+import { useCommerce } from '../commerce/client.tsx'
 import { Button } from './Button.tsx'
 
 const loginUsers = [
   {
-    id: 'alice',
-    name: 'Alice Johnson',
-    title: 'Support Lead',
+    id: 'customer-maya',
+    name: 'Maya Brooks',
+    title: 'Returning customer',
+    summary: 'Use the customer account flow, cart, checkout, and order history.',
   },
   {
-    id: 'ben',
-    name: 'Ben Carter',
-    title: 'Engineering Manager',
-  },
-  {
-    id: 'casey',
-    name: 'Casey Diaz',
-    title: 'Customer Success',
+    id: 'admin-evan',
+    name: 'Evan Stone',
+    title: 'Operations admin',
+    summary: 'Use the admin dashboard, product controls, inventory, and order management.',
   },
 ]
 
 export const LoginPage = () => {
-  const loginMutation = useLoginMutation()
+  const navigate = useNavigate()
+  const { login, state } = useCommerce()
 
   return (
-    <main className="login-shell">
+    <main className="login-shell commerce-login">
       <section className="login-card">
-        <p className="eyebrow">Realtime Workspace</p>
-        <h1>Orbit Team Chat</h1>
+        <p className="eyebrow">Electronics Retail Demo</p>
+        <h1>Showoff Electronics</h1>
         <p className="hero-copy">
-          Channels, live presence, threaded conversations, unread counts, uploads, and
-          offline recovery on a real local backend.
+          Catalog, search, filters, cart, checkout, account, admin, SSR, and role-aware
+          same-origin APIs in one production-style React stack.
         </p>
 
         <div className="login-user-grid">
@@ -40,9 +40,12 @@ export const LoginPage = () => {
                 <strong>{user.name}</strong>
                 <p>{user.title}</p>
               </div>
+              <small>{user.summary}</small>
               <Button
-                busy={loginMutation.isPending && loginMutation.variables === user.id}
-                onClick={() => loginMutation.mutate(user.id)}
+                onClick={async () => {
+                  await login(user.id)
+                  navigate(user.id === 'admin-evan' ? '/admin' : '/account/orders')
+                }}
               >
                 Sign in as {user.name.split(' ')[0]}
               </Button>
@@ -50,8 +53,8 @@ export const LoginPage = () => {
           ))}
         </div>
 
-        {loginMutation.isError ? (
-          <p className="field-error">{loginMutation.error.message}</p>
+        {state.session ? (
+          <p className="field-error">You are signed in already. Use the account or admin navigation.</p>
         ) : null}
       </section>
     </main>
