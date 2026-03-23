@@ -1,128 +1,380 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import {
-  attachmentRoute,
-  buildCursor,
-  pageSize,
-  parseCursor,
-  type Attachment,
-  type Channel,
-  type ChatMessage,
-  type PresenceRecord,
-  type ThreadReply,
-  type User,
-  type Workspace,
-  type PresenceState,
-} from '../src/chat/model.ts'
+  buildCartSummary,
+  filterProducts,
+  getDefaultVariant,
+  getVariant,
+} from '../src/commerce/catalog.ts'
+import type {
+  AdminCustomer,
+  AdminSummary,
+  AnalyticsEvent,
+  CatalogQuery,
+  CatalogResponse,
+  CartItem,
+  CartSummary,
+  CheckoutSession,
+  CommerceBootstrap,
+  Order,
+  OrderStatus,
+  Product,
+  ProductResponse,
+  Promotion,
+  SessionUser,
+} from '../src/commerce/model.ts'
 
-type StoredAttachment = Attachment & {
-  absolutePath: string
-  uploaderId: string
+type Address = Order['address']
+
+type SessionRecord = {
+  sessionId: string
+  userId: string
 }
 
-type ChannelReadState = Record<string, number>
-type ThreadReadState = Record<string, number>
-
-const nowFromSequence = (sequence: number) =>
-  new Date(Date.UTC(2026, 2, 22, 8, 0, sequence)).toISOString()
-
-const workspace: Workspace = {
-  id: 'workspace-1',
-  name: 'Orbit Team',
-  description: 'Realtime collaboration workspace for product and support operations.',
+type CustomerRecord = SessionUser & {
+  savedAddresses: Address[]
 }
 
-const users: User[] = [
+type StoredCheckoutSession = {
+  sessionId: string
+  customerId: string
+  address: Address
+  shippingMethod: 'standard' | 'priority'
+  createdAt: string
+}
+
+const nowIso = () => new Date().toISOString()
+
+const products: Product[] = [
   {
-    id: 'alice',
-    name: 'Alice Johnson',
-    title: 'Support Lead',
-    email: 'alice@showoff.dev',
-    avatarLabel: 'AJ',
+    id: 'p-orbit-pro',
+    slug: 'orbit-x1-pro-laptop',
+    name: 'Orbit X1 Pro Laptop',
+    category: 'laptops',
+    brand: 'Orbit',
+    badge: 'Best Seller',
+    description: 'A premium creator laptop with OLED display, AI acceleration, and all-day battery.',
+    highlights: ['4K OLED', 'RTX-class graphics', 'Up to 32GB memory'],
+    specs: {
+      Processor: 'NovaCore Ultra 9',
+      Display: '16-inch 4K OLED',
+      Battery: '17 hours',
+      Weight: '1.7 kg',
+    },
+    rating: 4.8,
+    reviewCount: 218,
+    featured: true,
+    releasedAt: '2026-01-12T10:00:00.000Z',
+    media: [
+      { id: 'm1', name: 'Orbit X1 hero', kind: 'image', url: '/favicon.svg' },
+      { id: 'm2', name: 'Orbit manual', kind: 'manual', url: '/manuals/orbit-x1.pdf' },
+    ],
+    variants: [
+      {
+        id: 'v-x1-silver-1tb',
+        sku: 'ORB-X1-S-1TB',
+        color: 'Silver',
+        storage: '1TB',
+        priceCents: 249_900,
+        compareAtCents: 269_900,
+        inventory: 18,
+      },
+      {
+        id: 'v-x1-black-2tb',
+        sku: 'ORB-X1-B-2TB',
+        color: 'Midnight',
+        storage: '2TB',
+        priceCents: 289_900,
+        compareAtCents: 309_900,
+        inventory: 6,
+      },
+    ],
   },
   {
-    id: 'ben',
-    name: 'Ben Carter',
-    title: 'Engineering Manager',
-    email: 'ben@showoff.dev',
-    avatarLabel: 'BC',
+    id: 'p-pulse-tab',
+    slug: 'pulse-tab-12',
+    name: 'Pulse Tab 12',
+    category: 'tablets',
+    brand: 'Pulse',
+    badge: 'New',
+    description: 'A hybrid entertainment and note-taking tablet with bright mini-LED panel.',
+    highlights: ['Mini-LED', 'Stylus ready', 'Wi-Fi 7'],
+    specs: {
+      Processor: 'Pulse M3',
+      Display: '12-inch mini-LED',
+      Battery: '14 hours',
+      Connectivity: 'Wi-Fi 7',
+    },
+    rating: 4.6,
+    reviewCount: 143,
+    featured: true,
+    releasedAt: '2026-02-03T10:00:00.000Z',
+    media: [
+      { id: 'm3', name: 'Pulse Tab hero', kind: 'image', url: '/favicon.svg' },
+      { id: 'm4', name: 'Pulse manual', kind: 'manual', url: '/manuals/pulse-tab-12.pdf' },
+    ],
+    variants: [
+      {
+        id: 'v-tab-gray-256',
+        sku: 'PLS-T12-G-256',
+        color: 'Graphite',
+        storage: '256GB',
+        priceCents: 89_900,
+        compareAtCents: 99_900,
+        inventory: 20,
+      },
+      {
+        id: 'v-tab-blue-512',
+        sku: 'PLS-T12-B-512',
+        color: 'Ice Blue',
+        storage: '512GB',
+        priceCents: 109_900,
+        compareAtCents: 119_900,
+        inventory: 10,
+      },
+    ],
   },
   {
-    id: 'casey',
-    name: 'Casey Diaz',
-    title: 'Customer Success',
-    email: 'casey@showoff.dev',
-    avatarLabel: 'CD',
+    id: 'p-signal-buds',
+    slug: 'signal-buds-max',
+    name: 'Signal Buds Max',
+    category: 'audio',
+    brand: 'Signal',
+    badge: 'Travel Pick',
+    description: 'Noise-canceling earbuds with adaptive transparency and wireless charging case.',
+    highlights: ['ANC', 'Spatial audio', '36-hour case battery'],
+    specs: {
+      Battery: '9 hours + 27 hour case',
+      Audio: 'Spatial audio',
+      Charging: 'USB-C / Qi',
+      Weight: '52 g case',
+    },
+    rating: 4.5,
+    reviewCount: 512,
+    featured: false,
+    releasedAt: '2025-11-21T10:00:00.000Z',
+    media: [
+      { id: 'm5', name: 'Signal Buds hero', kind: 'image', url: '/favicon.svg' },
+    ],
+    variants: [
+      {
+        id: 'v-buds-white',
+        sku: 'SGN-BUD-W',
+        color: 'Cloud',
+        storage: 'Standard',
+        priceCents: 24_900,
+        compareAtCents: 29_900,
+        inventory: 28,
+      },
+      {
+        id: 'v-buds-black',
+        sku: 'SGN-BUD-B',
+        color: 'Onyx',
+        storage: 'Standard',
+        priceCents: 24_900,
+        compareAtCents: 29_900,
+        inventory: 4,
+      },
+    ],
+  },
+  {
+    id: 'p-luma-monitor',
+    slug: 'luma-view-32',
+    name: 'Luma View 32',
+    category: 'monitors',
+    brand: 'Luma',
+    badge: 'Studio',
+    description: 'A 32-inch creator monitor with reference color and USB-C docking.',
+    highlights: ['5K panel', '98% DCI-P3', '90W USB-C'],
+    specs: {
+      Panel: '32-inch 5K IPS',
+      Refresh: '120Hz',
+      Connectivity: 'USB-C / Thunderbolt',
+      Audio: 'Integrated speakers',
+    },
+    rating: 4.7,
+    reviewCount: 81,
+    featured: true,
+    releasedAt: '2025-09-10T10:00:00.000Z',
+    media: [
+      { id: 'm6', name: 'Luma View hero', kind: 'image', url: '/favicon.svg' },
+    ],
+    variants: [
+      {
+        id: 'v-monitor-black',
+        sku: 'LUMA-32-B',
+        color: 'Black',
+        storage: 'Standard',
+        priceCents: 119_900,
+        compareAtCents: 129_900,
+        inventory: 8,
+      },
+    ],
+  },
+  {
+    id: 'p-arc-phone',
+    slug: 'arc-phone-9',
+    name: 'Arc Phone 9',
+    category: 'phones',
+    brand: 'Arc',
+    badge: 'Editor Pick',
+    description: 'Flagship phone with pro camera stack, titanium frame, and desktop docking mode.',
+    highlights: ['Pro camera', 'Titanium frame', 'Satellite SOS'],
+    specs: {
+      Processor: 'Arc A9',
+      Display: '6.8-inch LTPO OLED',
+      Camera: '50MP triple system',
+      Battery: '4900mAh',
+    },
+    rating: 4.9,
+    reviewCount: 389,
+    featured: true,
+    releasedAt: '2026-02-20T10:00:00.000Z',
+    media: [
+      { id: 'm7', name: 'Arc Phone hero', kind: 'image', url: '/favicon.svg' },
+    ],
+    variants: [
+      {
+        id: 'v-phone-titanium-256',
+        sku: 'ARC9-TI-256',
+        color: 'Titanium',
+        storage: '256GB',
+        priceCents: 129_900,
+        compareAtCents: 139_900,
+        inventory: 12,
+      },
+      {
+        id: 'v-phone-blue-512',
+        sku: 'ARC9-BL-512',
+        color: 'Blue',
+        storage: '512GB',
+        priceCents: 149_900,
+        compareAtCents: 159_900,
+        inventory: 0,
+      },
+    ],
   },
 ]
 
-const channelSeeds = [
+const categories = [
+  { id: 'laptops', name: 'Laptops', description: 'Creator, gaming, and daily carry machines.' },
+  { id: 'tablets', name: 'Tablets', description: 'Portable compute for work and play.' },
+  { id: 'phones', name: 'Phones', description: 'Flagship devices and mobile productivity.' },
+  { id: 'audio', name: 'Audio', description: 'Immersive audio gear for travel and focus.' },
+  { id: 'monitors', name: 'Monitors', description: 'Studio displays and desk command centers.' },
+]
+
+const promotions: Promotion[] = [
+  { code: 'WELCOME10', label: '10% off first order', type: 'percent', amount: 10, active: true },
+  { code: 'SHIPFREE', label: 'Free shipping upgrade', type: 'fixed', amount: 1_500, active: true },
+]
+
+const customers: CustomerRecord[] = [
   {
-    id: 'general',
-    name: 'general',
-    topic: 'Daily coordination and rollout updates.',
+    id: 'customer-maya',
+    name: 'Maya Brooks',
+    email: 'maya@showoff.test',
+    role: 'customer',
+    savedAddresses: [
+      {
+        fullName: 'Maya Brooks',
+        line1: '221B Purchase Street',
+        city: 'Berlin',
+        country: 'Germany',
+      },
+    ],
   },
   {
-    id: 'support',
-    name: 'support',
-    topic: 'Customer escalations and triage.',
-  },
-  {
-    id: 'releases',
-    name: 'releases',
-    topic: 'Deployments, incidents, and release readiness.',
+    id: 'admin-evan',
+    name: 'Evan Stone',
+    email: 'evan@showoff.test',
+    role: 'admin',
+    savedAddresses: [],
   },
 ]
 
-const uploadsDirectory = join(process.cwd(), '.runtime', 'uploads')
-mkdirSync(uploadsDirectory, { recursive: true })
+const initialOrders: Order[] = [
+  {
+    id: 'order-1001',
+    number: 'SO-1001',
+    customerId: 'customer-maya',
+    customerName: 'Maya Brooks',
+    createdAt: '2026-03-18T10:00:00.000Z',
+    status: 'delivered',
+    totalCents: 264_900,
+    lines: [
+      {
+        id: 'line-1001',
+        productId: 'p-orbit-pro',
+        productName: 'Orbit X1 Pro Laptop',
+        productSlug: 'orbit-x1-pro-laptop',
+        variantId: 'v-x1-silver-1tb',
+        variantLabel: 'Silver / 1TB',
+        quantity: 1,
+        unitPriceCents: 249_900,
+        lineTotalCents: 249_900,
+        badge: 'Best Seller',
+        image: '/favicon.svg',
+        availability: 'in-stock',
+      },
+    ],
+    address: {
+      fullName: 'Maya Brooks',
+      line1: '221B Purchase Street',
+      city: 'Berlin',
+      country: 'Germany',
+    },
+  },
+]
 
-export class ChatStore {
-  private readonly workspace = workspace
-  private readonly users = users
-  private readonly channels = channelSeeds
-  private readonly messages = new Map<string, ChatMessage[]>()
-  private readonly replies = new Map<string, ThreadReply[]>()
-  private readonly attachments = new Map<string, StoredAttachment>()
-  private readonly sessions = new Map<string, string>()
-  private readonly channelReads = new Map<string, ChannelReadState>()
-  private readonly threadReads = new Map<string, ThreadReadState>()
-  private readonly presence = new Map<string, PresenceRecord>()
-  private readonly deliveredMessages = new Map<string, ChatMessage>()
-  private readonly deliveredReplies = new Map<string, ThreadReply>()
-  private sequence = 1
+const seedCart: Record<string, CartItem[]> = {
+  'customer-maya': [
+    {
+      id: 'cart-line-1',
+      productId: 'p-signal-buds',
+      variantId: 'v-buds-white',
+      quantity: 1,
+    },
+  ],
+}
+
+export class CommerceStore {
+  private readonly sessions = new Map<string, SessionRecord>()
+
+  private readonly cartItems = new Map<string, CartItem[]>()
+
+  private readonly cartPromos = new Map<string, string>()
+
+  private readonly checkoutSessions = new Map<string, StoredCheckoutSession>()
+
+  private readonly analytics: AnalyticsEvent[] = []
+
+  private readonly orders = [...initialOrders]
 
   constructor() {
-    for (const channel of this.channels) {
-      this.messages.set(channel.id, [])
+    for (const [customerId, items] of Object.entries(seedCart)) {
+      this.cartItems.set(customerId, structuredClone(items))
     }
-
-    this.seedMessages()
-
-    for (const user of this.users) {
-      this.channelReads.set(user.id, {})
-      this.threadReads.set(user.id, {})
-      this.presence.set(user.id, {
-        userId: user.id,
-        state: 'offline',
-        lastActiveAt: nowFromSequence(this.sequence),
-      })
-    }
-
-    this.markChannelRead('alice', 'general')
-    this.markChannelRead('alice', 'support')
-    this.markChannelRead('ben', 'general')
   }
 
   getUploadsDirectory() {
-    return uploadsDirectory
+    const dir = join(process.cwd(), '.runtime', 'uploads')
+    mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
+  getSessionPayload(userId: string | null) {
+    if (!userId) {
+      return null
+    }
+
+    return this.getUser(userId)
   }
 
   createSession(userId: string) {
-    this.getUser(userId)
-    const sessionId = randomUUID()
-    this.sessions.set(sessionId, userId)
+    const user = this.getUser(userId)
+    const sessionId = `session-${user.id}-${Date.now()}`
+    this.sessions.set(sessionId, { sessionId, userId: user.id })
     return sessionId
   }
 
@@ -131,414 +383,370 @@ export class ChatStore {
   }
 
   getUserIdForSession(sessionId: string | undefined) {
-    if (!sessionId) {
-      return null
-    }
-
-    return this.sessions.get(sessionId) ?? null
+    return sessionId ? this.sessions.get(sessionId)?.userId ?? null : null
   }
 
-  getUser(userId: string) {
-    const user = this.users.find((entry) => entry.id === userId)
-
-    if (!user) {
-      throw new Error('Unknown user.')
-    }
-
-    return user
-  }
-
-  getSessionPayload(userId: string | null) {
+  getBootstrap(userId: string | null): CommerceBootstrap {
     return {
-      user: userId ? this.getUser(userId) : null,
+      session: userId ? this.getUser(userId) : null,
+      featured: products.filter((product) => product.featured).slice(0, 4),
+      categories,
+      cart: this.getCart(userId),
     }
   }
 
-  getBootstrap(userId: string) {
-    this.getUser(userId)
+  getCatalog(query: CatalogQuery): CatalogResponse {
+    const productsForQuery = filterProducts(products, query)
 
     return {
-      workspace: this.workspace,
-      currentUser: this.getUser(userId),
-      users: this.users,
-      presence: this.users.map((user) => this.getPresence(user.id)),
-      channels: this.channels.map((channel) => this.getChannelSummary(userId, channel.id)),
-      defaultChannelId: this.channels[0]!.id,
+      query,
+      categories,
+      products: productsForQuery,
+      availableBrands: [...new Set(products.map((product) => product.brand))].sort(),
+      total: productsForQuery.length,
     }
   }
 
-  getMessages(userId: string, channelId: string, cursor: string | undefined) {
-    this.getUser(userId)
-    const channelMessages = this.getChannelMessages(channelId)
-    const beforeSequence = parseCursor(cursor)
-    const filtered = beforeSequence
-      ? channelMessages.filter((message) => this.getSequence(message.id) < beforeSequence)
-      : channelMessages
-    const pageItems = filtered.slice(-pageSize)
+  getProduct(slug: string): ProductResponse {
+    const product = products.find((entry) => entry.slug === slug)
+
+    if (!product) {
+      throw new Error('Product not found.')
+    }
 
     return {
-      items: pageItems.map((message) => this.withThreadUnreadCount(userId, message)),
-      nextCursor:
-        filtered.length > pageItems.length
-          ? buildCursor(this.getSequence(pageItems[0]!.id))
-          : null,
+      product,
+      related: products
+        .filter((entry) => entry.category === product.category && entry.id !== product.id)
+        .slice(0, 3),
     }
   }
 
-  getThreadReplies(userId: string, messageId: string, cursor: string | undefined) {
-    this.getUser(userId)
-    this.getMessage(messageId)
-    const replies = this.replies.get(messageId) ?? []
-    const beforeSequence = parseCursor(cursor)
-    const filtered = beforeSequence
-      ? replies.filter((reply) => this.getSequence(reply.id) < beforeSequence)
-      : replies
-    const pageItems = filtered.slice(-pageSize)
-
-    return {
-      items: pageItems,
-      nextCursor:
-        filtered.length > pageItems.length
-          ? buildCursor(this.getSequence(pageItems[0]!.id))
-          : null,
-    }
-  }
-
-  createUpload(input: {
-    userId: string
-    fileName: string
-    mimeType: string
-    size: number
-    absolutePath: string
-    kind: Attachment['kind']
-  }) {
-    const attachment: StoredAttachment = {
-      id: `attachment-${randomUUID()}`,
-      name: input.fileName,
-      mimeType: input.mimeType,
-      size: input.size,
-      kind: input.kind,
-      absolutePath: input.absolutePath,
-      uploaderId: input.userId,
-      url: attachmentRoute(`attachment-${randomUUID()}`),
+  getCart(userId: string | null): CartSummary {
+    if (!userId) {
+      return buildCartSummary(products, [], null)
     }
 
-    attachment.url = attachmentRoute(attachment.id)
-    this.attachments.set(attachment.id, attachment)
-    return attachment
+    const items = this.cartItems.get(userId) ?? []
+    const promo = this.getActivePromotion(this.cartPromos.get(userId) ?? null)
+    return buildCartSummary(products, items, promo)
   }
 
-  getAttachment(attachmentId: string) {
-    const attachment = this.attachments.get(attachmentId)
+  addCartItem(userId: string, productId: string, variantId: string, quantity: number) {
+    const product = products.find((entry) => entry.id === productId)
 
-    if (!attachment) {
-      throw new Error('Attachment was not found.')
+    if (!product) {
+      throw new Error('Product not found.')
     }
 
-    return attachment
-  }
+    const variant = getVariant(product, variantId)
 
-  createMessage(input: {
-    userId: string
-    channelId: string
-    clientId: string
-    body: string
-    attachmentIds: string[]
-  }) {
-    const deliveryKey = `${input.userId}:${input.clientId}`
-    const existing = this.deliveredMessages.get(deliveryKey)
+    if (variant.inventory < quantity) {
+      throw new Error('Requested quantity exceeds available inventory.')
+    }
+
+    const items = [...(this.cartItems.get(userId) ?? [])]
+    const existing = items.find((item) => item.productId === productId && item.variantId === variantId)
 
     if (existing) {
-      return existing
-    }
-
-    const message: ChatMessage = {
-      id: `message-${this.sequence}`,
-      clientId: input.clientId,
-      channelId: input.channelId,
-      authorId: input.userId,
-      body: input.body,
-      attachments: input.attachmentIds.map((attachmentId) =>
-        this.toPublicAttachment(this.getAttachment(attachmentId)),
-      ),
-      createdAt: nowFromSequence(this.sequence),
-      version: this.sequence,
-      replyCount: 0,
-      threadUnreadCount: 0,
-    }
-
-    this.sequence += 1
-    this.getChannelMessages(input.channelId).push(message)
-    this.deliveredMessages.set(deliveryKey, message)
-    this.markChannelRead(input.userId, input.channelId)
-
-    return message
-  }
-
-  createReply(input: {
-    userId: string
-    messageId: string
-    clientId: string
-    body: string
-  }) {
-    const deliveryKey = `${input.userId}:${input.clientId}`
-    const existing = this.deliveredReplies.get(deliveryKey)
-
-    if (existing) {
-      return existing
-    }
-
-    const reply: ThreadReply = {
-      id: `reply-${this.sequence}`,
-      clientId: input.clientId,
-      messageId: input.messageId,
-      authorId: input.userId,
-      body: input.body,
-      createdAt: nowFromSequence(this.sequence),
-      version: this.sequence,
-    }
-
-    this.sequence += 1
-    const threadReplies = this.replies.get(input.messageId) ?? []
-    threadReplies.push(reply)
-    this.replies.set(input.messageId, threadReplies)
-    this.deliveredReplies.set(deliveryKey, reply)
-    this.incrementReplyCount(input.messageId)
-    this.markThreadRead(input.userId, input.messageId)
-
-    return reply
-  }
-
-  markChannelRead(userId: string, channelId: string) {
-    const messages = this.getChannelMessages(channelId)
-    const lastSequence = messages.length === 0 ? 0 : this.getSequence(messages.at(-1)!.id)
-    this.channelReads.set(userId, {
-      ...this.channelReads.get(userId),
-      [channelId]: lastSequence,
-    })
-
-    return this.getChannelSummary(userId, channelId)
-  }
-
-  markThreadRead(userId: string, messageId: string) {
-    const replies = this.replies.get(messageId) ?? []
-    const lastSequence = replies.length === 0 ? 0 : this.getSequence(replies.at(-1)!.id)
-    this.threadReads.set(userId, {
-      ...this.threadReads.get(userId),
-      [messageId]: lastSequence,
-    })
-
-    return {
-      unreadCount: this.getThreadUnreadCount(userId, messageId),
-    }
-  }
-
-  updatePresence(userId: string, state: PresenceState) {
-    const nextPresence = {
-      userId,
-      state,
-      lastActiveAt: new Date().toISOString(),
-    } satisfies PresenceRecord
-
-    this.presence.set(userId, nextPresence)
-    return nextPresence
-  }
-
-  touchPresence(userId: string) {
-    const current = this.getPresence(userId)
-    const nextState: PresenceState = current.state === 'offline' ? 'online' : 'online'
-    return this.updatePresence(userId, nextState)
-  }
-
-  toPublicAttachment(attachment: StoredAttachment): Attachment {
-    const publicAttachment: Attachment = {
-      id: attachment.id,
-      name: attachment.name,
-      mimeType: attachment.mimeType,
-      size: attachment.size,
-      kind: attachment.kind,
-      url: attachment.url,
-    }
-
-    return publicAttachment
-  }
-
-  getChannelSummary(userId: string, channelId: string): Channel {
-    const channel = this.channels.find((entry) => entry.id === channelId)
-
-    if (!channel) {
-      throw new Error('Channel was not found.')
-    }
-
-    const messages = this.getChannelMessages(channelId)
-    const lastMessage = messages.at(-1) ?? null
-
-    return {
-      id: channel.id,
-      name: channel.name,
-      topic: channel.topic,
-      unreadCount: this.getChannelUnreadCount(userId, channelId),
-      lastMessageAt: lastMessage?.createdAt ?? null,
-      lastMessagePreview: lastMessage?.body ?? null,
-    }
-  }
-
-  getThreadUnreadCount(userId: string, messageId: string) {
-    const lastReadSequence = this.threadReads.get(userId)?.[messageId] ?? 0
-    return (this.replies.get(messageId) ?? []).filter(
-      (reply) =>
-        this.getSequence(reply.id) > lastReadSequence && reply.authorId !== userId,
-    ).length
-  }
-
-  getPresence(userId: string) {
-    const presence = this.presence.get(userId)
-
-    if (!presence) {
-      throw new Error('Presence was not found.')
-    }
-
-    return presence
-  }
-
-  getPresenceSnapshot() {
-    return this.users.map((user) => this.getPresence(user.id))
-  }
-
-  getChannelIdForMessage(messageId: string) {
-    for (const [channelId, messages] of this.messages.entries()) {
-      if (messages.some((message) => message.id === messageId)) {
-        return channelId
-      }
-    }
-
-    throw new Error('Message channel was not found.')
-  }
-
-  getIdleUsers(thresholdMs: number) {
-    const now = Date.now()
-    return this.getPresenceSnapshot().filter(
-      (presence) =>
-        presence.state === 'online' &&
-        now - new Date(presence.lastActiveAt).getTime() >= thresholdMs,
-    )
-  }
-
-  private withThreadUnreadCount(userId: string, message: ChatMessage) {
-    return {
-      ...message,
-      threadUnreadCount: this.getThreadUnreadCount(userId, message.id),
-      replyCount: (this.replies.get(message.id) ?? []).length,
-    }
-  }
-
-  private getChannelUnreadCount(userId: string, channelId: string) {
-    const lastReadSequence = this.channelReads.get(userId)?.[channelId] ?? 0
-    return this.getChannelMessages(channelId).filter(
-      (message) =>
-        this.getSequence(message.id) > lastReadSequence && message.authorId !== userId,
-    ).length
-  }
-
-  private incrementReplyCount(messageId: string) {
-    for (const [channelId, messages] of this.messages.entries()) {
-      const index = messages.findIndex((message) => message.id === messageId)
-
-      if (index !== -1) {
-        const message = messages[index]!
-        messages[index] = {
-          ...message,
-          replyCount: (this.replies.get(messageId) ?? []).length,
-          version: this.sequence,
-        }
-        this.messages.set(channelId, messages)
-        return
-      }
-    }
-
-    throw new Error('Parent message was not found.')
-  }
-
-  private getChannelMessages(channelId: string) {
-    const messages = this.messages.get(channelId)
-
-    if (!messages) {
-      throw new Error('Channel was not found.')
-    }
-
-    return messages
-  }
-
-  private getMessage(messageId: string) {
-    for (const messages of this.messages.values()) {
-      const message = messages.find((entry) => entry.id === messageId)
-
-      if (message) {
-        return message
-      }
-    }
-
-    throw new Error('Message was not found.')
-  }
-
-  private getSequence(entityId: string) {
-    const numeric = Number(entityId.split('-').at(-1))
-
-    if (!Number.isInteger(numeric)) {
-      throw new Error('Entity sequence is invalid.')
-    }
-
-    return numeric
-  }
-
-  private seedMessages() {
-    const seed = [
-      ...Array.from({ length: 24 }, (_value, index) => ({
-        channelId: 'general',
-        authorId: index % 2 === 0 ? 'alice' : 'ben',
-        body:
-          index === 0
-            ? 'Morning team. Keep customer follow-ups inside support and release blockers inside releases.'
-            : `General coordination update ${index + 1}. Track live status, owners, and unblockers here.`,
-      })),
-      {
-        channelId: 'support',
-        authorId: 'casey',
-        body: 'We have three unread premium escalations waiting for product guidance.',
-      },
-      {
-        channelId: 'support',
-        authorId: 'alice',
-        body: 'Route the billing issue to me and keep the export bug threaded so engineering can track it.',
-      },
-      {
-        channelId: 'releases',
-        authorId: 'ben',
-        body: 'Release candidate is live in staging. Thread any blocker off this message.',
-      },
-    ]
-
-    for (const message of seed) {
-      this.createMessage({
-        userId: message.authorId,
-        channelId: message.channelId,
-        clientId: `seed-${this.sequence}`,
-        body: message.body,
-        attachmentIds: [],
+      existing.quantity = Math.min(10, existing.quantity + quantity)
+    } else {
+      items.push({
+        id: `cart-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        productId,
+        variantId,
+        quantity,
       })
     }
 
-    const releaseMessage = this.getChannelMessages('releases').at(-1)
+    this.cartItems.set(userId, items)
+    return this.getCart(userId)
+  }
 
-    if (!releaseMessage) {
-      throw new Error('Release seed message was not created.')
+  updateCartItem(userId: string, itemId: string, quantity: number) {
+    const items = [...(this.cartItems.get(userId) ?? [])]
+    const item = items.find((entry) => entry.id === itemId)
+
+    if (!item) {
+      throw new Error('Cart item not found.')
     }
 
-    this.createReply({
-      userId: 'alice',
-      messageId: releaseMessage.id,
-      clientId: `seed-${this.sequence}`,
-      body: 'Blocking issue is the search timeout report. I am validating whether it is frontend or API latency.',
+    const product = products.find((entry) => entry.id === item.productId)
+
+    if (!product) {
+      throw new Error('Product not found.')
+    }
+
+    const variant = getVariant(product, item.variantId)
+
+    if (variant.inventory < quantity) {
+      throw new Error('Requested quantity exceeds available inventory.')
+    }
+
+    item.quantity = quantity
+    this.cartItems.set(userId, items)
+    return this.getCart(userId)
+  }
+
+  removeCartItem(userId: string, itemId: string) {
+    const items = (this.cartItems.get(userId) ?? []).filter((entry) => entry.id !== itemId)
+    this.cartItems.set(userId, items)
+    return this.getCart(userId)
+  }
+
+  applyPromotion(userId: string, code: string) {
+    const promotion = this.getActivePromotion(code)
+
+    if (!promotion) {
+      throw new Error('Promo code is invalid.')
+    }
+
+    this.cartPromos.set(userId, promotion.code)
+    return this.getCart(userId)
+  }
+
+  createCheckoutSession(
+    userId: string,
+    address: Address,
+    shippingMethod: 'standard' | 'priority',
+  ): CheckoutSession {
+    const cart = this.getCart(userId)
+
+    if (cart.lines.length === 0) {
+      throw new Error('Cart is empty.')
+    }
+
+    const sessionId = `stripe_test_${Date.now()}`
+    this.checkoutSessions.set(sessionId, {
+      sessionId,
+      customerId: userId,
+      address,
+      shippingMethod,
+      createdAt: nowIso(),
     })
+
+    return {
+      sessionId,
+      checkoutUrl: `/checkout/success?session_id=${sessionId}`,
+    }
+  }
+
+  confirmCheckout(sessionId: string) {
+    const checkoutSession = this.checkoutSessions.get(sessionId)
+
+    if (!checkoutSession) {
+      throw new Error('Checkout session not found.')
+    }
+
+    const customer = this.getCustomer(checkoutSession.customerId)
+    const summary = this.getCart(customer.id)
+
+    const order: Order = {
+      id: `order-${Date.now()}`,
+      number: `SO-${1000 + this.orders.length + 1}`,
+      customerId: customer.id,
+      customerName: customer.name,
+      createdAt: nowIso(),
+      status: 'paid',
+      totalCents: summary.totalCents,
+      lines: summary.lines,
+      address: checkoutSession.address,
+    }
+
+    this.orders.unshift(order)
+    this.cartItems.set(customer.id, [])
+    this.cartPromos.delete(customer.id)
+    this.checkoutSessions.delete(sessionId)
+
+    this.captureAnalytics({
+      type: 'purchase_completed',
+      detail: { orderId: order.id, totalCents: String(order.totalCents) },
+      createdAt: nowIso(),
+    })
+
+    return order
+  }
+
+  getAccountProfile(userId: string) {
+    return this.getCustomer(userId)
+  }
+
+  getOrdersForCustomer(userId: string) {
+    return this.orders.filter((order) => order.customerId === userId)
+  }
+
+  getAdminSummary(): AdminSummary {
+    return {
+      revenueCents: this.orders.reduce((sum, order) => sum + order.totalCents, 0),
+      pendingOrders: this.orders.filter((order) => order.status !== 'delivered').length,
+      lowInventorySkus: products.flatMap((product) => product.variants).filter((variant) => variant.inventory < 8).length,
+      activePromotions: promotions.filter((promotion) => promotion.active).length,
+    }
+  }
+
+  getAdminProducts() {
+    return products
+  }
+
+  updateProduct(productId: string, badge: string, featured: boolean) {
+    const product = products.find((entry) => entry.id === productId)
+
+    if (!product) {
+      throw new Error('Product not found.')
+    }
+
+    product.badge = badge
+    product.featured = featured
+    this.captureAnalytics({
+      type: 'admin_product_updated',
+      detail: { productId, badge, featured: String(featured) },
+      createdAt: nowIso(),
+    })
+    return product
+  }
+
+  getInventory() {
+    return products.flatMap((product) =>
+      product.variants.map((variant) => ({
+        sku: variant.sku,
+        productName: product.name,
+        label: `${variant.color} / ${variant.storage}`,
+        inventory: variant.inventory,
+      })),
+    )
+  }
+
+  updateInventory(sku: string, inventory: number) {
+    const variant = products.flatMap((product) => product.variants).find((entry) => entry.sku === sku)
+
+    if (!variant) {
+      throw new Error('SKU not found.')
+    }
+
+    variant.inventory = inventory
+    return variant
+  }
+
+  getAdminOrders() {
+    return this.orders
+  }
+
+  updateOrder(orderId: string, status: OrderStatus) {
+    const order = this.orders.find((entry) => entry.id === orderId)
+
+    if (!order) {
+      throw new Error('Order not found.')
+    }
+
+    order.status = status
+    return order
+  }
+
+  getPromotions() {
+    return promotions
+  }
+
+  createPromotion(promotion: Promotion) {
+    promotions.unshift(promotion)
+    return promotion
+  }
+
+  getAdminCustomers(): AdminCustomer[] {
+    return customers
+      .filter((customer) => customer.role === 'customer')
+      .map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        orderCount: this.orders.filter((order) => order.customerId === customer.id).length,
+      }))
+  }
+
+  captureAnalytics(event: AnalyticsEvent) {
+    this.analytics.unshift(event)
+  }
+
+  getAnalytics() {
+    return this.analytics
+  }
+
+  private getUser(userId: string): SessionUser {
+    const user = customers.find((entry) => entry.id === userId)
+
+    if (!user) {
+      throw new Error('User not found.')
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    }
+  }
+
+  private getCustomer(userId: string) {
+    const customer = customers.find((entry) => entry.id === userId)
+
+    if (!customer) {
+      throw new Error('Customer not found.')
+    }
+
+    return customer
+  }
+
+  private getActivePromotion(code: string | null) {
+    if (!code) {
+      return null
+    }
+
+    return promotions.find((entry) => entry.code === code && entry.active) ?? null
+  }
+
+  getProductCatalog() {
+    return products
+  }
+
+  getCategories() {
+    return categories
+  }
+
+  getDefaultSearchQuery(): CatalogQuery {
+    return {
+      q: '',
+      category: 'all',
+      brand: 'all',
+      availability: 'all',
+      rating: 0,
+      priceMin: 0,
+      priceMax: 5000,
+      sort: 'featured',
+    }
+  }
+
+  getFeaturedProduct() {
+    return products[0] ?? null
+  }
+
+  getStructuredProduct(slug: string) {
+    const product = this.getProduct(slug).product
+    const variant = getDefaultVariant(product)
+
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: product.name,
+      description: product.description,
+      brand: { '@type': 'Brand', name: product.brand },
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: 'USD',
+        price: (variant.priceCents / 100).toFixed(2),
+        availability:
+          variant.inventory > 0
+            ? 'https://schema.org/InStock'
+            : 'https://schema.org/BackOrder',
+      },
+    }
   }
 }

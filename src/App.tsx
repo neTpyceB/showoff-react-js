@@ -1,88 +1,58 @@
-import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
-import { AppShell } from './components/AppShell.tsx'
-import { ChannelPage } from './components/ChannelPage.tsx'
+/* @jsxRuntime automatic */
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { CommerceProvider, useCommerce } from './commerce/client.tsx'
+import type { AppState } from './commerce/state.ts'
+import {
+  AccountPage,
+  AdminPage,
+  CartPage,
+  CatalogPage,
+  CheckoutPage,
+  CheckoutSuccessPage,
+  HomePage,
+  ProductPage,
+  StoreLayout,
+} from './components/CommercePages.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
-import { useBootstrapQuery, useSessionQuery } from './chat/hooks.ts'
-import { ChatRealtimeProvider } from './chat/socket.tsx'
-
-const LoadingScreen = ({ label }: { label: string }) => (
-  <main className="login-shell">
-    <section className="login-card">
-      <h1>{label}</h1>
-    </section>
-  </main>
-)
-
-const RootRedirect = () => {
-  const sessionQuery = useSessionQuery()
-  const bootstrapQuery = useBootstrapQuery(Boolean(sessionQuery.data))
-
-  if (sessionQuery.isPending) {
-    return <LoadingScreen label="Checking session" />
-  }
-
-  if (!sessionQuery.data) {
-    return <Navigate to="/login" replace />
-  }
-
-  if (bootstrapQuery.isPending) {
-    return <LoadingScreen label="Loading channels" />
-  }
-
-  if (!bootstrapQuery.data) {
-    return <LoadingScreen label="Workspace unavailable" />
-  }
-
-  return <Navigate to={`/channels/${bootstrapQuery.data.defaultChannelId}`} replace />
-}
-
-const ProtectedRoute = () => {
-  const sessionQuery = useSessionQuery()
-  const { channelId = '' } = useParams()
-
-  if (sessionQuery.isPending) {
-    return <LoadingScreen label="Checking session" />
-  }
-
-  if (!sessionQuery.data) {
-    return <Navigate to="/login" replace />
-  }
-
-  return (
-    <AppShell activeChannelId={channelId}>
-      <Outlet />
-    </AppShell>
-  )
-}
 
 const LoginRoute = () => {
-  const sessionQuery = useSessionQuery()
+  const { state } = useCommerce()
 
-  if (sessionQuery.isPending) {
-    return <LoadingScreen label="Checking session" />
+  if (state.session?.role === 'customer') {
+    return <Navigate replace to="/account/orders" />
   }
 
-  if (sessionQuery.data) {
-    return <Navigate to="/" replace />
+  if (state.session?.role === 'admin') {
+    return <Navigate replace to="/admin" />
   }
 
   return <LoginPage />
 }
 
-function App() {
-  const sessionQuery = useSessionQuery()
-
-  return (
-    <ChatRealtimeProvider userId={sessionQuery.data?.id ?? null}>
-      <Routes>
-        <Route path="/login" element={<LoginRoute />} />
-        <Route path="/" element={<RootRedirect />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="/channels/:channelId" element={<ChannelPage />} />
-        </Route>
-      </Routes>
-    </ChatRealtimeProvider>
-  )
-}
+export const App = ({ initialState }: { initialState: AppState }) => (
+  <CommerceProvider initialState={initialState}>
+    <Routes>
+      <Route path="/login" element={<LoginRoute />} />
+      <Route element={<StoreLayout />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="/catalog/:slug" element={<ProductPage />} />
+        <Route path="/search" element={<CatalogPage searchMode />} />
+        <Route path="/cart" element={<CartPage />} />
+        <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+        <Route path="/account/orders" element={<AccountPage />} />
+        <Route path="/account/profile" element={<AccountPage />} />
+        <Route path="/account/addresses" element={<AccountPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/products" element={<AdminPage />} />
+        <Route path="/admin/inventory" element={<AdminPage />} />
+        <Route path="/admin/orders" element={<AdminPage />} />
+        <Route path="/admin/promotions" element={<AdminPage />} />
+        <Route path="/admin/customers" element={<AdminPage />} />
+      </Route>
+    </Routes>
+  </CommerceProvider>
+)
 
 export default App
