@@ -1,50 +1,34 @@
 /* @jsxRuntime automatic */
 import { useNavigate } from 'react-router-dom'
-import { useCommerce } from '../commerce/client.tsx'
+import { usePlatform } from '../platform/client.tsx'
 import { Button } from './Button.tsx'
-
-const loginUsers = [
-  {
-    id: 'customer-maya',
-    name: 'Maya Brooks',
-    title: 'Returning customer',
-    summary: 'Use the customer account flow, cart, checkout, and order history.',
-  },
-  {
-    id: 'admin-evan',
-    name: 'Evan Stone',
-    title: 'Operations admin',
-    summary: 'Use the admin dashboard, product controls, inventory, and order management.',
-  },
-]
 
 export const LoginPage = () => {
   const navigate = useNavigate()
-  const { login, state } = useCommerce()
+  const { login, state } = usePlatform()
 
   return (
-    <main className="login-shell commerce-login">
+    <main className="login-shell">
       <section className="login-card">
-        <p className="eyebrow">Electronics Retail Demo</p>
-        <h1>Showoff Electronics</h1>
-        <p className="hero-copy">
-          Catalog, search, filters, cart, checkout, account, admin, SSR, and role-aware
-          same-origin APIs in one production-style React stack.
+        <p className="eyebrow">Flagship SaaS Admin Demo</p>
+        <h1>Northstar Admin</h1>
+        <p className="muted-copy login-copy">
+          Multi-tenant organizations, role-aware modules, billing entitlements, feature flags, audit logs, and plugin-like internal modules on one same-origin React stack.
         </p>
 
         <div className="login-user-grid">
-          {loginUsers.map((user) => (
+          {state.bootstrap.loginOptions.map((user) => (
             <article key={user.id} className="login-user-card">
               <div className="avatar-badge">{user.name.split(' ').map((part) => part[0]).join('')}</div>
               <div>
                 <strong>{user.name}</strong>
-                <p>{user.title}</p>
+                <small>{user.email}</small>
               </div>
-              <small>{user.summary}</small>
+              <p>{user.summary}</p>
               <Button
                 onClick={async () => {
                   await login(user.id)
-                  navigate(user.id === 'admin-evan' ? '/admin' : '/account/orders')
+                  navigate('/')
                 }}
               >
                 Sign in as {user.name.split(' ')[0]}
@@ -52,10 +36,6 @@ export const LoginPage = () => {
             </article>
           ))}
         </div>
-
-        {state.session ? (
-          <p className="field-error">You are signed in already. Use the account or admin navigation.</p>
-        ) : null}
       </section>
     </main>
   )

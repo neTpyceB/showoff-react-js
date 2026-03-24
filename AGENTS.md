@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is a production-style React.js showcase. The current flagship product is an electronics e-commerce frontend with SSR, cart and checkout, customer account flows, and an operational admin area. Every change should preserve a portfolio-grade quality bar across implementation, tests, Docker, CI, and documentation.
+This repository is a production-style React.js showcase. The current flagship product is a multi-tenant SaaS admin system with SSR, organization switching, scoped roles, billing entitlements, feature flags, audit logs, and plugin-like modules. Every change should preserve a portfolio-grade quality bar across implementation, tests, Docker, CI, browser validation, and documentation.
 
 ## Delivery rules
 
@@ -16,8 +16,8 @@ This repository is a production-style React.js showcase. The current flagship pr
 - Keep docs synchronized with implementation changes.
 - Keep docs synchronized with implementation changes and with newly introduced operating instructions from the user.
 - Run the full verification path after code changes: lint, typecheck, tests, build, and e2e.
-- Avoid speculative abstractions unless a component is already proving reuse.
-- Domain logic should live in shared commerce models, server rules, and state layers rather than in view components.
+- Avoid speculative abstractions unless the code already proves the need.
+- Domain logic should live in shared platform models, access rules, server services, and state layers rather than in view components.
 - Do not implement functional fallbacks. Features should either work correctly or fail explicitly so defects are visible.
 - Always verify localhost and browser behavior when the project exposes a UI surface.
 - New URLs and routes must be checked for correct public or private exposure and safe default access.
@@ -26,8 +26,9 @@ This repository is a production-style React.js showcase. The current flagship pr
 
 ## Project map
 
-- `src/`: storefront, account, admin UI, SSR client entry, and shared commerce logic.
-- `server/`: same-origin SSR server plus seeded in-memory commerce store.
+- `src/platform/`: shared SaaS contracts, access rules, browser API edges, and app state.
+- `src/components/`: login, app shell, module pages, and reusable UI primitives.
+- `server/`: same-origin SSR server plus seeded in-memory multi-tenant store.
 - `e2e/`: browser tests.
-- `docs/`: architecture, roadmap, engineering rules, and security notes.
+- `docs/`: architecture, roadmap, project planning, engineering rules, and security notes.
 - `.github/workflows/`: CI automation.

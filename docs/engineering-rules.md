@@ -5,7 +5,7 @@
 - Record completed middle steps and remaining planned steps in project docs when the task is material enough to need tracking.
 - Verify each completed implementation step instead of waiting to test only at the end.
 - Keep domain logic pure and deterministic.
-- Put access checks, board movement rules, and server-sync contracts outside view components.
+- Put access checks, tenant isolation rules, billing entitlements, and server contracts outside view components.
 - Validate both user input and hydrated persistence payloads with schemas.
 - Prefer explicit protected-route behavior over client-side convenience shortcuts.
 - Route and URL exposure must be documented and verified whenever new navigable surfaces are added.
