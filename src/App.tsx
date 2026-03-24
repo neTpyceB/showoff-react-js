@@ -1,58 +1,54 @@
 /* @jsxRuntime automatic */
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { CommerceProvider, useCommerce } from './commerce/client.tsx'
-import type { AppState } from './commerce/state.ts'
+import { PlatformProvider, usePlatform } from './platform/client.tsx'
+import type { AppState } from './platform/state.ts'
 import {
-  AccountPage,
-  AdminPage,
-  CartPage,
-  CatalogPage,
-  CheckoutPage,
-  CheckoutSuccessPage,
-  HomePage,
-  ProductPage,
-  StoreLayout,
-} from './components/CommercePages.tsx'
+  AccessDenied,
+  AuditPage,
+  BillingPage,
+  DashboardRedirect,
+  FlagsPage,
+  MembersPage,
+  OrganizationRedirect,
+  OverviewPage,
+  PlatformLayout,
+  PluginsPage,
+} from './components/SaasPages.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
+import { getDefaultModulePath } from './platform/access.ts'
 
 const LoginRoute = () => {
-  const { state } = useCommerce()
+  const { state } = usePlatform()
 
-  if (state.session?.role === 'customer') {
-    return <Navigate replace to="/account/orders" />
-  }
-
-  if (state.session?.role === 'admin') {
-    return <Navigate replace to="/admin" />
+  if (state.session && state.bootstrap.currentOrganization) {
+    const membership = state.session.memberships.find(
+      (entry) => entry.orgId === state.bootstrap.currentOrganization?.id,
+    )
+    if (membership) {
+      return <Navigate replace to={getDefaultModulePath(membership.role, state.bootstrap.currentOrganization)} />
+    }
   }
 
   return <LoginPage />
 }
 
 export const App = ({ initialState }: { initialState: AppState }) => (
-  <CommerceProvider initialState={initialState}>
+  <PlatformProvider initialState={initialState}>
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      <Route element={<StoreLayout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/catalog" element={<CatalogPage />} />
-        <Route path="/catalog/:slug" element={<ProductPage />} />
-        <Route path="/search" element={<CatalogPage searchMode />} />
-        <Route path="/cart" element={<CartPage />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-        <Route path="/account/orders" element={<AccountPage />} />
-        <Route path="/account/profile" element={<AccountPage />} />
-        <Route path="/account/addresses" element={<AccountPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/products" element={<AdminPage />} />
-        <Route path="/admin/inventory" element={<AdminPage />} />
-        <Route path="/admin/orders" element={<AdminPage />} />
-        <Route path="/admin/promotions" element={<AdminPage />} />
-        <Route path="/admin/customers" element={<AdminPage />} />
+      <Route element={<PlatformLayout />}>
+        <Route path="/" element={<DashboardRedirect />} />
+        <Route path="/orgs/:orgId" element={<OrganizationRedirect />} />
+        <Route path="/orgs/:orgId/overview" element={<OverviewPage />} />
+        <Route path="/orgs/:orgId/members" element={<MembersPage />} />
+        <Route path="/orgs/:orgId/billing" element={<BillingPage />} />
+        <Route path="/orgs/:orgId/flags" element={<FlagsPage />} />
+        <Route path="/orgs/:orgId/audit" element={<AuditPage />} />
+        <Route path="/orgs/:orgId/plugins" element={<PluginsPage />} />
+        <Route path="/forbidden" element={<AccessDenied />} />
       </Route>
     </Routes>
-  </CommerceProvider>
+  </PlatformProvider>
 )
 
 export default App

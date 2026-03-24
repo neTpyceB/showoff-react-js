@@ -1,17 +1,17 @@
 # Showoff React.js
 
-Production-style electronics e-commerce frontend built with React, TypeScript, Express SSR, Docker, and browser-tested verification. The app ships as a same-origin storefront with SEO-capable SSR routes, catalog and search, filters, PDPs, cart, checkout, account pages, and an operational admin area.
+Production-style multi-tenant SaaS admin system built with React, TypeScript, Express SSR, Docker, and browser-tested verification. The app is organized around tenant isolation, org-scoped access control, billing entitlements, feature flags, audit logs, and plugin-like internal modules.
 
 ## Product scope
 
-- Public storefront routes on `/`, `/catalog`, `/catalog/:slug`, `/search`, `/cart`, `/checkout`, `/checkout/success`, and `/login`
-- Protected customer routes on `/account/*`
-- Protected admin routes on `/admin/*`
-- Same-origin SSR plus JSON APIs
-- Seeded catalog, customers, carts, promotions, orders, and admin data
-- Cart updates, promo codes, checkout session creation, order confirmation, analytics events
-- Customer account history and addresses
-- Admin product, inventory, order, promotion, and customer views
+- Public login route on `/login`
+- Authenticated workspace redirect on `/`
+- Authenticated org routes on `/orgs/:orgId/*`
+- Multi-organization seeded users with org switching
+- Server-owned cookie sessions
+- Org-scoped role checks, billing entitlements, and feature-flag gating
+- Internal module registry for `Overview`, `Members`, `Billing`, `Feature Flags`, `Audit Logs`, and `Plugins`
+- Immutable audit entries for every mutating admin action
 
 ## Stack
 
@@ -27,13 +27,15 @@ Production-style electronics e-commerce frontend built with React, TypeScript, E
 
 ## URL access model
 
-- `/`, `/catalog`, `/catalog/:slug`, `/search`, `/cart`, `/checkout`, `/checkout/success`, `/login`: public
-- `/account/*`: customer-only
-- `/admin/*`: admin-only
-- `/api/account/*`: customer-only
-- `/api/admin/*`: admin-only
-- `/api/checkout/*`: customer-only
-- `/api/analytics/events`: server-owned ingestion endpoint
+- `/login`: public
+- `/`: authenticated redirect into the current organization
+- `/orgs/:orgId/overview`: authenticated org member
+- `/orgs/:orgId/members`: manager, admin, or owner with role-management entitlement
+- `/orgs/:orgId/billing`: admin or owner with billing-controls entitlement
+- `/orgs/:orgId/flags`: admin or owner with billing-controls entitlement and `advancedRoles`
+- `/orgs/:orgId/audit`: admin or owner with audit-log entitlement and `auditStreaming`
+- `/orgs/:orgId/plugins`: admin or owner with plugin-registry entitlement and `pluginCenter`
+- `/api/orgs/:orgId/*`: authenticated org member, with server-enforced per-endpoint authorization
 
 ## Local run
 
@@ -42,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
 ## Docker
 
@@ -50,7 +52,7 @@ Open [http://localhost:5173](http://localhost:5173).
 docker compose up --build app preview
 ```
 
-Open [http://localhost:5173](http://localhost:5173) for the development stack and [http://localhost:4173](http://localhost:4173) for the production-preview stack.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) for the development stack and [http://127.0.0.1:4173](http://127.0.0.1:4173) for the production-preview stack.
 
 ## Verification
 
@@ -58,12 +60,15 @@ Open [http://localhost:5173](http://localhost:5173) for the development stack an
 make verify
 ```
 
-That runs linting, type checks, unit tests, smoke tests, a production build, and browser e2e against an isolated preview port.
+That runs linting, type checks, unit tests, smoke tests, a production build, and browser e2e.
 
 ## Demo accounts
 
-- Customer: `Maya Brooks`
-- Admin: `Evan Stone`
+- `Olivia Hart`: owner in two organizations
+- `Ben Carter`: Acme Cloud admin
+- `Mia Chen`: Northstar OS manager
+- `Noah Park`: Acme Cloud viewer
+- `Zoe Lin`: member in two organizations
 
 ## Documentation
 
@@ -72,3 +77,4 @@ That runs linting, type checks, unit tests, smoke tests, a production build, and
 - [Roadmap](./docs/roadmap.md)
 - [Engineering Rules](./docs/engineering-rules.md)
 - [Security Audit](./docs/security-audit.md)
+- [Project Plan](./docs/project-saas.md)

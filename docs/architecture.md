@@ -2,45 +2,45 @@
 
 ## Overview
 
-The app is structured around a same-origin React SSR storefront plus a local Express backend:
+The app is structured around a same-origin React SSR admin shell plus a local Express backend:
 
-- `src/commerce/model.ts` defines the shared typed contracts for catalog, cart, orders, account, admin, promotions, checkout, and analytics.
-- `src/commerce/catalog.ts` owns pure pricing, availability, sorting, filtering, and cart summary derivation.
-- `server/store.ts` owns seeded commerce data, sessions, carts, orders, promotions, checkout sessions, and admin mutations.
-- `server/index.ts` exposes authenticated HTTP routes and server-side renders route-specific HTML with metadata and embedded initial state.
-- `src/commerce/api.ts` is the browser HTTP boundary.
-- `src/commerce/client.tsx` owns client state refresh flows for cart, account, and admin surfaces.
-- `src/components/CommercePages.tsx` contains the routed storefront, cart, checkout, account, and admin UI surfaces.
+- `src/platform/model.ts` defines the shared typed contracts for sessions, organizations, roles, billing, feature flags, audit entries, plugins, and module descriptors.
+- `src/platform/access.ts` owns module registry metadata and the pure authorization rules for `(role + entitlement + feature flag)`.
+- `server/store.ts` owns seeded organizations, membership partitioning, session state, audit writing, billing state, and plugin activation.
+- `server/index.ts` exposes authenticated org-scoped HTTP routes and server-side renders route-specific HTML with metadata and embedded initial state.
+- `src/platform/api.ts` is the browser HTTP boundary.
+- `src/platform/client.tsx` owns client refresh flows for login, org switching, and module updates.
+- `src/components/SaasPages.tsx` contains the routed admin shell and internal module surfaces.
 
 ## Routing and access
 
-- Public routes:
-  - `/`
-  - `/catalog`
-  - `/catalog/:slug`
-  - `/search`
-  - `/cart`
-  - `/checkout`
-  - `/checkout/success`
+- Public route:
   - `/login`
-- Customer-only routes:
-  - `/account/orders`
-  - `/account/profile`
-  - `/account/addresses`
-- Admin-only routes:
-  - `/admin`
-  - `/admin/products`
-  - `/admin/inventory`
-  - `/admin/orders`
-  - `/admin/promotions`
-  - `/admin/customers`
+- Authenticated root:
+  - `/`
+- Authenticated org routes:
+  - `/orgs/:orgId/overview`
+  - `/orgs/:orgId/members`
+  - `/orgs/:orgId/billing`
+  - `/orgs/:orgId/flags`
+  - `/orgs/:orgId/audit`
+  - `/orgs/:orgId/plugins`
 
-## SSR and SEO
+Access is enforced by:
 
-- The Express server renders HTML for each storefront, account, and admin route before hydration.
-- Route-level metadata is selected server-side from the resolved path and request query.
-- PDP routes include product structured data.
-- The client hydrates from `window.__APP_STATE__` so initial route data is preserved across SSR and browser takeover.
+- session cookie presence
+- org membership match
+- role thresholds
+- plan entitlements
+- feature flag requirements
+
+## Tenant boundary model
+
+- A session can belong to multiple organizations.
+- The server keeps one current organization in the session record.
+- Every protected read and mutation is explicitly scoped by `orgId`.
+- Server mutations write immutable audit entries inside the same org boundary.
+- The module registry is filtered per organization and per role before navigation is rendered.
 
 ## Backend contracts
 
@@ -48,38 +48,31 @@ The app is structured around a same-origin React SSR storefront plus a local Exp
   - `GET /api/session`
   - `POST /api/session/login`
   - `POST /api/session/logout`
-- Storefront:
+  - `POST /api/session/switch-organization`
+- Bootstrap:
   - `GET /api/bootstrap`
-  - `GET /api/catalog`
-  - `GET /api/products/:slug`
-  - `GET /api/search`
-  - `GET /api/cart`
-  - `POST /api/cart/items`
-  - `PATCH /api/cart/items/:itemId`
-  - `DELETE /api/cart/items/:itemId`
-  - `POST /api/cart/promo`
-  - `POST /api/checkout/session`
-  - `POST /api/checkout/confirm`
-- Account:
-  - `GET /api/account/orders`
-  - `GET /api/account/profile`
-- Admin:
-  - `GET /api/admin/summary`
-  - `GET /api/admin/products`
-  - `PATCH /api/admin/products/:productId`
-  - `GET /api/admin/orders`
-  - `PATCH /api/admin/orders/:orderId`
-  - `GET /api/admin/inventory`
-  - `PATCH /api/admin/inventory/:sku`
-  - `GET /api/admin/promotions`
-  - `POST /api/admin/promotions`
-  - `GET /api/admin/customers`
-- Analytics:
-  - `POST /api/analytics/events`
+- Organization modules:
+  - `GET /api/orgs/:orgId/overview`
+  - `GET /api/orgs/:orgId/members`
+  - `PATCH /api/orgs/:orgId/members/:memberId`
+  - `GET /api/orgs/:orgId/billing`
+  - `PATCH /api/orgs/:orgId/billing`
+  - `GET /api/orgs/:orgId/flags`
+  - `PATCH /api/orgs/:orgId/flags/:flagKey`
+  - `GET /api/orgs/:orgId/audit`
+  - `GET /api/orgs/:orgId/plugins`
+  - `PATCH /api/orgs/:orgId/plugins/:pluginId`
 
 ## State model
 
-- The server owns source-of-truth commerce state in memory for the seeded demo.
+- The server owns the source-of-truth tenant data in memory for the seeded demo.
 - SSR embeds an initial `AppState` snapshot for the requested route.
-- Client refresh paths update cart, account, and admin slices after mutations.
-- Checkout confirmation is completed by navigating to the success route with a checkout session id, which allows the server to finalize the seeded order in the same-origin flow.
+- The client refreshes bootstrap state after login, org switching, and mutating module actions.
+- Module views fetch their own org-scoped slice on navigation while preserving the shared admin shell.
+
+## Code ownership boundaries
+
+- `src/platform/*`: shared contracts, access rules, and browser state edges.
+- `server/*`: authoritative authz, tenant isolation, audit logging, and mutation services.
+- `src/components/*`: app shell composition and module presentation.
+- New modules should enter through the registry and keep their store and UI slices localized instead of editing the shell in multiple places.

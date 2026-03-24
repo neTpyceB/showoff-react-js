@@ -29,7 +29,7 @@ const waitForServer = async (url, timeoutMs = 30_000) => {
 }
 
 const assertVisible = async (locator, message) => {
-  await locator.waitFor({ state: 'visible' })
+  await locator.waitFor({ state: 'visible', timeout: 15_000 })
   assert.equal(await locator.isVisible(), true, message)
 }
 
@@ -49,86 +49,85 @@ const createPage = async () => {
 const loginAs = async (page, firstName) => {
   await page.goto(`${baseURL}/login`)
   await page.getByRole('button', { name: `Sign in as ${firstName}` }).click()
+  await page.waitForURL(/\/orgs\/[^/]+(\/overview)?$/)
 }
 
 const runAccessibilityScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await page.goto(`${baseURL}/admin`)
-    await page.waitForURL(/\/login$/)
-    await assertVisible(
-      page.getByRole('heading', { name: 'Showoff Electronics' }),
-      'Login screen should render.',
-    )
+    await page.goto(`${baseURL}/login`)
+    await assertVisible(page.getByText('Sign in as Olivia'), 'Login page should render.')
 
     const scan = await new AxeBuilder({ page }).analyze()
-    assert.deepEqual(scan.violations, [], 'Accessibility violations found on the login route.')
+    assert.deepEqual(scan.violations, [], 'Accessibility violations found on login.')
   } finally {
     await context.close()
   }
 }
 
-const runStorefrontScenario = async () => {
+const runOwnerScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await page.goto(`${baseURL}/account/orders`)
+    await page.goto(`${baseURL}/orgs/org-acme/members`)
     await page.waitForURL(/\/login$/)
-    await loginAs(page, 'Maya')
-    await page.waitForURL(/\/account\/orders$/)
-    await assertVisible(page.getByText('SO-1001'), 'Customer account orders should be visible.')
+    await loginAs(page, 'Olivia')
 
-    await page.goto(`${baseURL}/catalog?category=phones`)
-    await assertVisible(page.getByText('Arc Phone 9'), 'Filtered catalog should render the phone result.')
-    await page.goto(`${baseURL}/search?q=Orbit`)
-    await assertVisible(page.getByText('Orbit X1 Pro Laptop'), 'Search should return the Orbit laptop.')
+    await assertVisible(page.getByRole('heading', { name: /acme cloud overview/i }), 'Owner overview should load.')
 
-    await page.goto(`${baseURL}/catalog/orbit-x1-pro-laptop`)
-    await assertVisible(page.getByRole('heading', { name: 'Orbit X1 Pro Laptop' }), 'PDP should render.')
-    await page.getByRole('button', { name: 'Add to cart' }).click()
-    await page.goto(`${baseURL}/cart`)
-    await assertVisible(page.getByText('Orbit X1 Pro Laptop'), 'Cart should include the added product.')
+    await page.goto(`${baseURL}/orgs/org-acme/members`)
+    const noahRow = page.getByRole('row').filter({ has: page.getByText('Noah Park') })
+    await page.getByLabel('Role for Noah Park').selectOption('manager')
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/members/user-noah') && response.request().method() === 'PATCH'),
+      noahRow.getByRole('button', { name: 'Save role' }).click(),
+    ])
+    await assertVisible(page.getByText('Role updated'), 'Role update toast should appear.')
 
-    await page.getByLabel('Quantity for Signal Buds Max').selectOption('2')
-    await page.getByPlaceholder('Promo code').fill('WELCOME10')
-    await page.getByRole('button', { name: 'Apply' }).click()
-    await assertVisible(page.getByText('$2,697.30'), 'Promo-adjusted cart total should render.')
+    await page.goto(`${baseURL}/orgs/org-acme/billing`)
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/billing') && response.request().method() === 'PATCH'),
+      page.getByRole('button', { name: 'Set enterprise' }).click(),
+    ])
+    await assertVisible(page.getByText('enterprise plan · active'), 'Billing plan should update to enterprise.')
 
-    await page.getByRole('button', { name: 'Proceed to checkout' }).click()
-    await page.waitForURL(/\/checkout$/)
-    await page.getByRole('button', { name: 'Create checkout session' }).click()
-    await page.waitForURL(/\/checkout\/success\?session_id=/)
-    await assertVisible(page.getByRole('link', { name: 'View orders' }), 'Checkout success should render the post-purchase CTA.')
+    await page.goto(`${baseURL}/orgs/org-acme/flags`)
+    const pluginCenterCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Plugin center' }) })
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/flags/pluginCenter') && response.request().method() === 'PATCH'),
+      pluginCenterCard.getByRole('button', { name: 'Enable' }).click(),
+    ])
+    await assertVisible(page.getByText('Plugin center is now enabled.'), 'Flag update toast should appear.')
 
-    await page.goto(`${baseURL}/account/orders`)
-    await assertVisible(page.getByText(/SO-/).first(), 'Orders should remain available after checkout.')
+    await page.goto(`${baseURL}/orgs/org-acme/plugins`)
+    const insightsCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Workload Insights' }) })
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/plugins/plugin-insights') && response.request().method() === 'PATCH'),
+      insightsCard.getByRole('button', { name: 'Enable' }).click(),
+    ])
+    await assertVisible(page.getByText('Workload Insights is now enabled.'), 'Plugin update toast should appear.')
+
+    await page.goto(`${baseURL}/orgs/org-acme/audit`)
+    await assertVisible(page.getByText('member.role_updated'), 'Audit log should contain role mutation.')
+    await assertVisible(page.getByText('plugin.updated'), 'Audit log should contain plugin mutation.')
+
+    await page.getByLabel('Organization switcher').selectOption('org-northstar')
+    await page.waitForURL(/\/orgs\/org-northstar\/overview$/)
+    await assertVisible(page.getByRole('heading', { name: /northstar os overview/i }), 'Org switcher should navigate to the selected org.')
   } finally {
     await context.close()
   }
 }
 
-const runAdminScenario = async () => {
+const runViewerScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await page.goto(`${baseURL}/admin`)
-    await page.waitForURL(/\/login$/)
-    await loginAs(page, 'Evan')
-    await page.waitForURL(/\/admin$/)
-    await assertVisible(page.getByText('Operational commerce dashboard'), 'Admin overview should render.')
-
-    await page.goto(`${baseURL}/admin/products`)
-    await page.getByRole('button', { name: 'Toggle merch' }).first().click()
-    await assertVisible(page.getByText('Product updated'), 'Admin product updates should toast.')
-
-    await page.goto(`${baseURL}/admin/inventory`)
-    await page.getByRole('button', { name: 'Add stock' }).first().click()
-    await assertVisible(page.getByText('Operational commerce dashboard'), 'Admin inventory page should stay stable.')
-
-    await page.goto(`${baseURL}/admin/promotions`)
-    await page.getByRole('button', { name: 'Create promotion' }).click()
-    await assertVisible(page.getByText('SPRING25'), 'Admin promotion creation should render.')
+    await loginAs(page, 'Noah')
+    await assertVisible(page.getByRole('heading', { name: /acme cloud overview/i }), 'Viewer overview should load.')
+    await page.goto(`${baseURL}/orgs/org-acme/billing`)
+    await assertVisible(page.getByRole('heading', { name: 'Access denied' }), 'Viewer should be denied billing access.')
   } finally {
     await context.close()
   }
@@ -138,8 +137,8 @@ await waitForServer(baseURL)
 
 try {
   await runAccessibilityScenario()
-  await runStorefrontScenario()
-  await runAdminScenario()
+  await runOwnerScenario()
+  await runViewerScenario()
 } finally {
   await browser.close()
 }

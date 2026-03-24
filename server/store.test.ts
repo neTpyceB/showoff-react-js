@@ -1,54 +1,52 @@
 import { describe, expect, it } from 'vitest'
-import { CommerceStore } from './store.ts'
+import { PlatformStore } from './store.ts'
 
-describe('CommerceStore', () => {
-  it('filters the seeded catalog', () => {
-    const store = new CommerceStore()
-    const catalog = store.getCatalog({
-      q: 'Arc',
-      category: 'all',
-      brand: 'all',
-      availability: 'all',
-      rating: 0,
-      priceMin: 0,
-      priceMax: 5000,
-      sort: 'featured',
-    })
+describe('PlatformStore', () => {
+  it('keeps tenant data isolated by organization', () => {
+    const store = new PlatformStore()
 
-    expect(catalog.products).toHaveLength(1)
-    expect(catalog.products[0]?.slug).toBe('arc-phone-9')
+    expect(store.getMembers('org-acme').map((member) => member.email)).toContain('noah@northstar.test')
+    expect(store.getMembers('org-acme').map((member) => member.email)).not.toContain('mia@northstar.test')
+    expect(store.getMembers('org-northstar').map((member) => member.email)).toContain('mia@northstar.test')
   })
 
-  it('creates checkout sessions and confirms orders', () => {
-    const store = new CommerceStore()
-    const sessionId = store.createSession('customer-maya')
+  it('blocks plugin enablement when the plan or flag does not allow it', () => {
+    const store = new PlatformStore()
+    const sessionId = store.createSession('user-ben')
     const userId = store.getUserIdForSession(sessionId)
 
     if (!userId) {
       throw new Error('Expected seeded session.')
     }
 
-    store.addCartItem(userId, 'p-orbit-pro', 'v-x1-silver-1tb', 1)
-    const checkout = store.createCheckoutSession(userId, {
-      fullName: 'Maya Brooks',
-      line1: '221B Purchase Street',
-      city: 'Berlin',
-      country: 'Germany',
-    }, 'standard')
-
-    const order = store.confirmCheckout(checkout.sessionId)
-
-    expect(order.number).toMatch(/^SO-/)
-    expect(store.getCart(userId).itemCount).toBe(0)
+    expect(() => store.updatePlugin(userId, 'org-acme', 'plugin-insights', true)).toThrow(
+      /plan does not include/i,
+    )
   })
 
-  it('updates admin inventory and product merchandising', () => {
-    const store = new CommerceStore()
+  it('writes audit events for mutating actions', () => {
+    const store = new PlatformStore()
+    const sessionId = store.createSession('user-olivia')
+    const userId = store.getUserIdForSession(sessionId)
 
-    const updatedProduct = store.updateProduct('p-orbit-pro', 'Limited Drop', false)
-    const updatedInventory = store.updateInventory('ORB-X1-S-1TB', 24)
+    if (!userId) {
+      throw new Error('Expected seeded session.')
+    }
 
-    expect(updatedProduct.badge).toBe('Limited Drop')
-    expect(updatedInventory.inventory).toBe(24)
+    const before = store.getAuditEntries('org-acme').length
+    store.updateBillingPlan(userId, 'org-acme', 'enterprise')
+    const after = store.getAuditEntries('org-acme')
+
+    expect(after).toHaveLength(before + 1)
+    expect(after[0]?.action).toBe('billing.plan_changed')
+  })
+
+  it('switches organizations only for assigned memberships', () => {
+    const store = new PlatformStore()
+    store.createSession('user-olivia')
+    store.switchOrganization('user-olivia', 'org-northstar')
+
+    expect(store.getSessionPayload('user-olivia')?.currentOrgId).toBe('org-northstar')
+    expect(() => store.switchOrganization('user-ben', 'org-northstar')).toThrow(/organization/i)
   })
 })
