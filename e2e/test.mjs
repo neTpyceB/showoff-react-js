@@ -29,7 +29,7 @@ const findOpenPort = async () =>
     })
   })
 
-const waitForServer = async (baseUrl, timeoutMs = 30_000) => {
+const waitForServer = async (baseUrl, timeoutMs = 60_000) => {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {

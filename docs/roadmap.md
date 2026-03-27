@@ -2,19 +2,20 @@
 
 ## Current scope
 
-- Same-origin SSR admin shell
-- Multi-organization seeded users and org switching
-- Org-scoped access control with roles, entitlements, and feature flags
-- Billing overview and plan mutation
-- Member role management
-- Immutable audit logs
-- Internal plugin-like module registry
+- Next.js 16 App Router platform shell
+- Locale-prefixed English and German routes
+- Seeded server-owned sessions with HTTP-only cookies
+- Scoped product shell across organization, workspace, product, and environment
+- Feed, dashboards, search, notifications, collaboration, jobs, observability, and experiments
+- SSE for live feed, notifications, jobs, and presence
+- Server actions for context switching and module mutations
+- Unit, smoke, build, and browser verification
 
 ## Next candidates
 
-- Durable storage for sessions, organizations, billing state, and audit events
-- SCIM-like user provisioning and invite workflows
-- Usage metering history and billing invoices
-- Read-only API keys and tenant-level webhook settings
-- Per-module ownership docs and split package boundaries for larger teams
-- Real plugin sandbox contracts if the registry ever needs external integrations
+- Per-route metadata expansion and richer structured metadata
+- Durable storage for sessions, product state, audit history, and experiments
+- Stronger audit event surfacing in a dedicated module
+- Per-module ownership docs and split-package extraction if the repo grows further
+- More realistic observability querying and incident drill-down
+- Experiment rollout histories, guardrail snapshots, and variant detail views

@@ -6,8 +6,21 @@ import { chromium } from 'playwright'
 
 const port = Number(process.env.E2E_PORT ?? '4174')
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`
+const primaryFeedPath = '/en/app/northstar/growth/atlas-cloud/production/feed'
+const primaryCollaborationPath = '/en/app/northstar/growth/atlas-cloud/production/collaboration'
+const primaryJobsPath = '/en/app/northstar/growth/atlas-cloud/production/jobs'
+const primarySearchPath = '/en/app/northstar/growth/atlas-cloud/production/search'
+const primaryNotificationsPath = '/en/app/northstar/growth/atlas-cloud/production/notifications'
+const primaryObservabilityPath = '/en/app/northstar/growth/atlas-cloud/production/observability'
+const primaryExperimentsPath = '/en/app/northstar/growth/atlas-cloud/production/experiments'
+const defaultFeedPathByUser = {
+  Alina: primaryFeedPath,
+  Emil: primaryFeedPath,
+  Felix: primaryFeedPath,
+  Marta: '/en/app/northstar/reliability/pulse-ops/production/feed',
+}
 
-const waitForServer = async (url, timeoutMs = 30_000) => {
+const waitForServer = async (url, timeoutMs = 60_000) => {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
@@ -28,9 +41,13 @@ const waitForServer = async (url, timeoutMs = 30_000) => {
   throw new Error(`Timed out waiting for ${url}.`)
 }
 
-const assertVisible = async (locator, message) => {
-  await locator.waitFor({ state: 'visible', timeout: 15_000 })
+const assertVisible = async (locator, message, timeout = 15_000) => {
+  await locator.waitFor({ state: 'visible', timeout })
   assert.equal(await locator.isVisible(), true, message)
+}
+
+const waitForText = async (page, text, timeout = 15_000) => {
+  await assertVisible(page.getByText(text).first(), `Expected to find "${text}".`, timeout)
 }
 
 const browser = await chromium.launch({ headless: true })
@@ -46,21 +63,44 @@ const createPage = async () => {
   }
 }
 
-const loginAs = async (page, firstName) => {
-  await page.goto(`${baseURL}/login`)
-  await page.getByRole('button', { name: `Sign in as ${firstName}` }).click()
-  await page.waitForURL(/\/orgs\/[^/]+(\/overview)?$/)
+const loginAs = async (page, firstName, locale = 'en') => {
+  await page.goto(`${baseURL}/${locale}/login`)
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('/api/session/login')),
+    page.getByRole('button', { name: new RegExp(`Sign in as ${firstName}`, 'i') }).click(),
+  ])
+  const targetPath = defaultFeedPathByUser[firstName]
+  if (!targetPath) {
+    throw new Error(`Missing seeded default route for ${firstName}.`)
+  }
+  await page.goto(`${baseURL}${targetPath}`)
+  await page.waitForURL(new RegExp(`/${locale}/app/[^/]+/[^/]+/[^/]+/[^/]+/feed$`))
 }
 
 const runAccessibilityScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await page.goto(`${baseURL}/login`)
-    await assertVisible(page.getByText('Sign in as Olivia'), 'Login page should render.')
+    await page.goto(`${baseURL}/en/login`)
+    await waitForText(page, 'Atlas Product Platform')
 
     const scan = await new AxeBuilder({ page }).analyze()
     assert.deepEqual(scan.violations, [], 'Accessibility violations found on login.')
+  } finally {
+    await context.close()
+  }
+}
+
+const runAccessScenario = async () => {
+  const protectedResponse = await fetch(`${baseURL}/api/search?q=latency`)
+  assert.equal(protectedResponse.status, 401, 'Anonymous search API should return 401.')
+
+  const { context, page } = await createPage()
+
+  try {
+    await page.goto(`${baseURL}${primaryFeedPath}`)
+    await page.waitForURL(/\/en\/login$/)
+    await waitForText(page, 'Atlas Product Platform')
   } finally {
     await context.close()
   }
@@ -70,51 +110,112 @@ const runOwnerScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await page.goto(`${baseURL}/orgs/org-acme/members`)
-    await page.waitForURL(/\/login$/)
-    await loginAs(page, 'Olivia')
+    await loginAs(page, 'Alina')
+    await waitForText(page, 'Operational feed')
 
-    await assertVisible(page.getByRole('heading', { name: /acme cloud overview/i }), 'Owner overview should load.')
-
-    await page.goto(`${baseURL}/orgs/org-acme/members`)
-    const noahRow = page.getByRole('row').filter({ has: page.getByText('Noah Park') })
-    await page.getByLabel('Role for Noah Park').selectOption('manager')
+    await page.getByLabel('Organization').selectOption('solstice')
     await Promise.all([
-      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/members/user-noah') && response.request().method() === 'PATCH'),
-      noahRow.getByRole('button', { name: 'Save role' }).click(),
+      page.waitForURL(/\/en\/app\/solstice\/core\/solstice-app\/production\/feed$/),
+      page.getByRole('button', { name: 'Update context' }).click(),
     ])
-    await assertVisible(page.getByText('Role updated'), 'Role update toast should appear.')
+    await assertVisible(page.getByRole('heading', { name: 'Solstice App' }), 'Expected Solstice scope shell.')
 
-    await page.goto(`${baseURL}/orgs/org-acme/billing`)
     await Promise.all([
-      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/billing') && response.request().method() === 'PATCH'),
-      page.getByRole('button', { name: 'Set enterprise' }).click(),
+      page.waitForURL(/\/de\/app\/solstice\/core\/solstice-app\/production\/feed$/),
+      page.locator('.locale-switcher').getByRole('link', { name: 'DE', exact: true }).click(),
     ])
-    await assertVisible(page.getByText('enterprise plan · active'), 'Billing plan should update to enterprise.')
+    await waitForText(page, 'Abmelden')
 
-    await page.goto(`${baseURL}/orgs/org-acme/flags`)
-    const pluginCenterCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Plugin center' }) })
     await Promise.all([
-      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/flags/pluginCenter') && response.request().method() === 'PATCH'),
-      pluginCenterCard.getByRole('button', { name: 'Enable' }).click(),
+      page.waitForURL(/\/en\/app\/solstice\/core\/solstice-app\/production\/feed$/),
+      page.locator('.locale-switcher').getByRole('link', { name: 'EN', exact: true }).click(),
     ])
-    await assertVisible(page.getByText('Plugin center is now enabled.'), 'Flag update toast should appear.')
 
-    await page.goto(`${baseURL}/orgs/org-acme/plugins`)
-    const insightsCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Workload Insights' }) })
+    await page.getByLabel('Organization').selectOption('northstar')
+    await page.getByLabel('Workspace').selectOption('growth')
+    await page.getByLabel('Product').selectOption('atlas-cloud')
+    await page.getByLabel('Environment').selectOption('production')
     await Promise.all([
-      page.waitForResponse((response) => response.url().includes('/api/orgs/org-acme/plugins/plugin-insights') && response.request().method() === 'PATCH'),
-      insightsCard.getByRole('button', { name: 'Enable' }).click(),
+      page.waitForURL(/\/en\/app\/northstar\/growth\/atlas-cloud\/production\/feed$/),
+      page.getByRole('button', { name: 'Update context' }).click(),
     ])
-    await assertVisible(page.getByText('Workload Insights is now enabled.'), 'Plugin update toast should appear.')
 
-    await page.goto(`${baseURL}/orgs/org-acme/audit`)
-    await assertVisible(page.getByText('member.role_updated'), 'Audit log should contain role mutation.')
-    await assertVisible(page.getByText('plugin.updated'), 'Audit log should contain plugin mutation.')
+    await page.goto(`${baseURL}${primarySearchPath}`)
+    await assertVisible(page.getByRole('heading', { name: 'Search' }), 'Expected search page heading.')
+    const searchInput = page.getByLabel('Search platform')
+    await searchInput.fill('latency')
+    await waitForText(page, 'Checkout latency regression')
 
-    await page.getByLabel('Organization switcher').selectOption('org-northstar')
-    await page.waitForURL(/\/orgs\/org-northstar\/overview$/)
-    await assertVisible(page.getByRole('heading', { name: /northstar os overview/i }), 'Org switcher should navigate to the selected org.')
+    await page.goto(`${baseURL}${primaryNotificationsPath}`)
+    const notificationId = await page.locator('input[name="notificationId"]').first().inputValue()
+    const acknowledgeResponse = await page.context().request.post(
+      `${baseURL}/api/notifications/${encodeURIComponent(notificationId)}/ack`,
+    )
+    assert.equal(acknowledgeResponse.status(), 200, 'Expected notification acknowledge API to succeed.')
+
+    await page.goto(`${baseURL}${primaryObservabilityPath}`)
+    await page.getByLabel('Observability query type').selectOption('incidents')
+    await page.getByRole('button', { name: 'Run query' }).click()
+    await waitForText(page, 'Checkout latency regression')
+
+    await page.goto(`${baseURL}${primaryExperimentsPath}`)
+    const experimentCard = page.locator('article').filter({ hasText: 'Smart inbox ranking' })
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.request().method() === 'POST' && response.url().includes(primaryExperimentsPath),
+      ),
+      experimentCard.getByRole('button', { name: 'Start rollout' }).click(),
+    ])
+    await page.goto(`${baseURL}${primaryFeedPath}`)
+    await waitForText(page, 'Smart inbox ranking rollout started')
+  } finally {
+    await context.close()
+  }
+}
+
+const runRealtimeScenario = async () => {
+  const feedSession = await createPage()
+  const collabSession = await createPage()
+  const presenceSession = await createPage()
+
+  try {
+    await loginAs(feedSession.page, 'Alina')
+    await feedSession.page.goto(`${baseURL}${primaryFeedPath}`)
+
+    await loginAs(collabSession.page, 'Emil')
+    await collabSession.page.goto(`${baseURL}${primaryCollaborationPath}`)
+    const commentText = `Realtime decision ${Date.now()}`
+    await collabSession.page.locator('textarea[name="body"]').first().fill(commentText)
+    await collabSession.page.getByRole('button', { name: 'Add comment' }).first().click()
+    await waitForText(feedSession.page, commentText, 20_000)
+
+    await loginAs(presenceSession.page, 'Felix')
+    await feedSession.page.goto(`${baseURL}${primaryCollaborationPath}`)
+    await presenceSession.page.goto(`${baseURL}${primaryCollaborationPath}`)
+    await waitForText(feedSession.page, 'Active sessions: 2', 20_000)
+  } finally {
+    await feedSession.context.close()
+    await collabSession.context.close()
+    await presenceSession.context.close()
+  }
+}
+
+const runJobsScenario = async () => {
+  const { context, page } = await createPage()
+
+  try {
+    await loginAs(page, 'Alina')
+    await page.goto(`${baseURL}${primaryJobsPath}`)
+    await assertVisible(page.getByRole('heading', { name: 'Jobs' }), 'Expected jobs page heading.')
+    await waitForText(page, 'analytics-backfill')
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.request().method() === 'POST' && response.url().includes(primaryJobsPath),
+      ),
+      page.getByRole('button', { name: 'Retry job' }).click(),
+    ])
+    await page.goto(`${baseURL}${primaryFeedPath}`)
+    await waitForText(page, 'analytics-backfill completed cleanly', 20_000)
   } finally {
     await context.close()
   }
@@ -124,10 +225,9 @@ const runViewerScenario = async () => {
   const { context, page } = await createPage()
 
   try {
-    await loginAs(page, 'Noah')
-    await assertVisible(page.getByRole('heading', { name: /acme cloud overview/i }), 'Viewer overview should load.')
-    await page.goto(`${baseURL}/orgs/org-acme/billing`)
-    await assertVisible(page.getByRole('heading', { name: 'Access denied' }), 'Viewer should be denied billing access.')
+    await loginAs(page, 'Felix')
+    await page.goto(`${baseURL}${primaryJobsPath}`)
+    await assertVisible(page.getByRole('heading', { name: 'Access denied' }), 'Viewer should see access denied.')
   } finally {
     await context.close()
   }
@@ -137,7 +237,10 @@ await waitForServer(baseURL)
 
 try {
   await runAccessibilityScenario()
+  await runAccessScenario()
   await runOwnerScenario()
+  await runRealtimeScenario()
+  await runJobsScenario()
   await runViewerScenario()
 } finally {
   await browser.close()
