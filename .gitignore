@@ -27,3 +27,4 @@ _scaffold
 *.njsproj
 *.sln
 *.sw?
+.next
