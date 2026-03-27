@@ -1,25 +1,23 @@
 # Showoff React.js
 
-Production-style multi-tenant SaaS admin system built with React, TypeScript, Express SSR, Docker, and browser-tested verification. The app is organized around tenant isolation, org-scoped access control, billing entitlements, feature flags, audit logs, and plugin-like internal modules.
+Production-style product operations platform built with Next.js 16 App Router, React 19, TypeScript, Server Components, SSE, strict server-owned authz, Docker, and browser-tested verification.
 
 ## Product scope
 
-- Public login route on `/login`
-- Authenticated workspace redirect on `/`
-- Authenticated org routes on `/orgs/:orgId/*`
-- Multi-organization seeded users with org switching
-- Server-owned cookie sessions
-- Org-scoped role checks, billing entitlements, and feature-flag gating
-- Internal module registry for `Overview`, `Members`, `Billing`, `Feature Flags`, `Audit Logs`, and `Plugins`
-- Immutable audit entries for every mutating admin action
+- Locale-prefixed entry routes on `/en/*` and `/de/*`
+- Public login on `/:locale/login`
+- Authenticated product shell on `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/*`
+- Feed, dashboards, search, notifications, collaboration, jobs, observability, and experiments
+- Multi-organization seeded users with scoped roles and server-owned sessions
+- SSE for notifications, feed updates, job status, and scoped presence
+- Server actions for context switching and authenticated mutations
+- Strict route and API boundaries with explicit `401` and `403` behavior
 
 ## Stack
 
+- Next.js 16 App Router
 - React 19
 - TypeScript 5
-- Vite 8
-- React Router 7
-- Express 5
 - Zod
 - Vitest + Testing Library
 - Playwright + axe-core
@@ -27,15 +25,19 @@ Production-style multi-tenant SaaS admin system built with React, TypeScript, Ex
 
 ## URL access model
 
-- `/login`: public
-- `/`: authenticated redirect into the current organization
-- `/orgs/:orgId/overview`: authenticated org member
-- `/orgs/:orgId/members`: manager, admin, or owner with role-management entitlement
-- `/orgs/:orgId/billing`: admin or owner with billing-controls entitlement
-- `/orgs/:orgId/flags`: admin or owner with billing-controls entitlement and `advancedRoles`
-- `/orgs/:orgId/audit`: admin or owner with audit-log entitlement and `auditStreaming`
-- `/orgs/:orgId/plugins`: admin or owner with plugin-registry entitlement and `pluginCenter`
-- `/api/orgs/:orgId/*`: authenticated org member, with server-enforced per-endpoint authorization
+- `/:locale/login`: public
+- `/:locale`: authenticated redirect into the session’s current context
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/feed`: any scoped member
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/dashboards`: any scoped member
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/search`: any scoped member
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/notifications`: any scoped member
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/collaboration`: any scoped member
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/jobs`: `owner`, `admin`, `engineer`
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/observability`: `owner`, `admin`, `engineer`, `analyst`
+- `/:locale/app/:orgSlug/:workspaceSlug/:productSlug/:environmentSlug/experiments`: `owner`, `admin`, `product_manager`, `analyst`
+- `/api/search`: authenticated only
+- `/api/observability/query`: authenticated plus observability-capable role
+- `/api/jobs/*`, `/api/experiments/*`, `/api/collaboration/*`, `/api/notifications/*`: authenticated and server-authorized
 
 ## Local run
 
@@ -44,7 +46,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+Open [http://127.0.0.1:5173/en/login](http://127.0.0.1:5173/en/login).
 
 ## Docker
 
@@ -52,7 +54,10 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 docker compose up --build app preview
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173) for the development stack and [http://127.0.0.1:4173](http://127.0.0.1:4173) for the production-preview stack.
+Open:
+
+- [http://127.0.0.1:5173/en/login](http://127.0.0.1:5173/en/login) for the dev container
+- [http://127.0.0.1:4173/en/login](http://127.0.0.1:4173/en/login) for the production-preview container
 
 ## Verification
 
@@ -60,15 +65,14 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173) for the development stack an
 make verify
 ```
 
-That runs linting, type checks, unit tests, smoke tests, a production build, and browser e2e.
+That runs linting, type checks, unit tests, smoke tests, a production build, and Playwright browser e2e.
 
 ## Demo accounts
 
-- `Olivia Hart`: owner in two organizations
-- `Ben Carter`: Acme Cloud admin
-- `Mia Chen`: Northstar OS manager
-- `Noah Park`: Acme Cloud viewer
-- `Zoe Lin`: member in two organizations
+- `Alina Vogel`: owner across Northstar and Solstice workspaces
+- `Emil Krauss`: product manager for Northstar growth scopes
+- `Marta Rossi`: engineer for Northstar reliability scopes
+- `Felix Brandt`: viewer for Northstar growth production
 
 ## Documentation
 
@@ -77,4 +81,4 @@ That runs linting, type checks, unit tests, smoke tests, a production build, and
 - [Roadmap](./docs/roadmap.md)
 - [Engineering Rules](./docs/engineering-rules.md)
 - [Security Audit](./docs/security-audit.md)
-- [Project Plan](./docs/project-saas.md)
+- [Project Plan](./docs/project-platform.md)

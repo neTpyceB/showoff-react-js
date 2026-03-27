@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is a production-style React.js showcase. The current flagship product is a multi-tenant SaaS admin system with SSR, organization switching, scoped roles, billing entitlements, feature flags, audit logs, and plugin-like modules. Every change should preserve a portfolio-grade quality bar across implementation, tests, Docker, CI, browser validation, and documentation.
+This repository is a production-style React.js showcase. The current flagship product is a world-class product operations platform built on Next.js 16 App Router with locale-prefixed routes, server-owned sessions, scoped tenant boundaries, SSE-driven live surfaces, background jobs, observability, experimentation controls, and strict module-level authorization. Every change should preserve a portfolio-grade quality bar across implementation, tests, Docker, CI, browser validation, and documentation.
 
 ## Delivery rules
 
@@ -17,7 +17,7 @@ This repository is a production-style React.js showcase. The current flagship pr
 - Keep docs synchronized with implementation changes and with newly introduced operating instructions from the user.
 - Run the full verification path after code changes: lint, typecheck, tests, build, and e2e.
 - Avoid speculative abstractions unless the code already proves the need.
-- Domain logic should live in shared platform models, access rules, server services, and state layers rather than in view components.
+- Domain logic should live in shared platform models, access rules, server services, caching helpers, and state layers rather than in view components.
 - Do not implement functional fallbacks. Features should either work correctly or fail explicitly so defects are visible.
 - Always verify localhost and browser behavior when the project exposes a UI surface.
 - New URLs and routes must be checked for correct public or private exposure and safe default access.
@@ -26,9 +26,10 @@ This repository is a production-style React.js showcase. The current flagship pr
 
 ## Project map
 
-- `src/platform/`: shared SaaS contracts, access rules, browser API edges, and app state.
-- `src/components/`: login, app shell, module pages, and reusable UI primitives.
-- `server/`: same-origin SSR server plus seeded in-memory multi-tenant store.
+- `app/`: App Router routes, layouts, route handlers, loading and access boundaries.
+- `src/modules/`: feature modules for feed, dashboards, search, notifications, collaboration, jobs, observability, experiments, and the product shell.
+- `src/server/`: seeded in-memory services, auth, cache tags, runtime ticking, and server actions.
+- `src/lib/`: shared types, locale dictionaries, and permission rules.
 - `e2e/`: browser tests.
 - `docs/`: architecture, roadmap, project planning, engineering rules, and security notes.
 - `.github/workflows/`: CI automation.
